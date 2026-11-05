@@ -5,7 +5,7 @@ import { createDb, runMigrations } from './db/client';
 
 const config = loadConfig();
 const { db } = await createDb(config.databaseUrl);
-await runMigrations(db);
+await runMigrations(db, process.env.MIGRATIONS_DIR);
 const app = await buildApp({ config, db, discord: null, files: {}, rng: cryptoRng });
 await app.listen({ port: config.port, host: '0.0.0.0' });
 console.log(`RpgAi server listening on port ${config.port}`);

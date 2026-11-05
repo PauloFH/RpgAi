@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format esm --platform node --target node24 --noExternal @rpgai/shared",
+    "build": "tsup",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc --noEmit"
   },
