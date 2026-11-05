@@ -45,3 +45,13 @@ export async function createTestApp(
     },
   };
 }
+
+export async function login(
+  app: FastifyInstance,
+  name: string,
+): Promise<{ cookie: string; userId: string }> {
+  const res = await app.inject({ method: 'POST', url: '/auth/dev-login', payload: { name } });
+  const sid = res.cookies.find((c) => c.name === 'sid');
+  if (res.statusCode !== 200 || !sid) throw new Error(`dev-login failed: ${res.statusCode} ${res.body}`);
+  return { cookie: `sid=${sid.value}`, userId: (res.json() as { userId: string }).userId };
+}
