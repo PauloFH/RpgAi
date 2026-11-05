@@ -31,7 +31,7 @@ const isDigit = (c: string | undefined): c is string => c !== undefined && c >= 
 
 export function parseDice(source: string): DiceExpr {
   if (source.length > MAX_SOURCE) throw new DiceError('too_long');
-  const s = source.replace(/\s+/g, '').toLowerCase();
+  const s = source.trim().toLowerCase();
   if (s.length === 0) throw new DiceError('syntax');
 
   let pos = 0;
@@ -39,6 +39,10 @@ export function parseDice(source: string): DiceExpr {
     const start = pos;
     while (isDigit(s[pos])) pos++;
     return pos === start ? null : Number(s.slice(start, pos));
+  };
+
+  const skipSpaces = () => {
+    while (s[pos] === ' ' || s[pos] === '	') pos++;
   };
 
   const terms: DiceTerm[] = [];
@@ -72,12 +76,14 @@ export function parseDice(source: string): DiceExpr {
       terms.push({ kind: 'const', sign, value: first });
     }
 
+    skipSpaces();
     if (pos >= s.length) break;
     const op = s[pos];
     if (op === '+') sign = 1;
     else if (op === '-') sign = -1;
     else throw new DiceError('syntax');
     pos++;
+    skipSpaces();
   }
 
   return { source, terms };

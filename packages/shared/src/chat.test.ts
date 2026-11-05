@@ -17,6 +17,7 @@ describe('parseChat', () => {
     expect(parseChat('/r 1d20+5 Furtividade')).toMatchObject({ kind: 'roll', label: 'Furtividade', secret: false, expr: { source: '1d20+5' } });
     expect(parseChat('/roll 2d6 + 3 dano')).toMatchObject({ kind: 'roll', label: 'dano', expr: { source: '2d6 + 3' } });
     expect(parseChat('/r d20')).toMatchObject({ label: null });
+    expect(parseChat('/r 1d20 5 dano')).toMatchObject({ label: '5 dano', expr: { source: '1d20' } });
   });
   it('/gr é secreto', () => {
     expect(parseChat('/gr 1d20')).toMatchObject({ kind: 'roll', secret: true });

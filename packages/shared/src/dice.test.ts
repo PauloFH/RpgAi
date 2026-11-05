@@ -29,6 +29,9 @@ describe('parseDice/rollDice', () => {
     expect(code('abc')).toBe('syntax');
     expect(code('0d6')).toBe('syntax');
     expect(code('1d20kh2')).toBe('syntax');
+    expect(code('1d20 5')).toBe('syntax');
+    expect(code('1 d20')).toBe('syntax');
+    expect(code('2d20 kh1')).toBe('syntax');
     expect(code('101d6')).toBe('too_many_dice');
     expect(code('60d6+60d6+60d6+60d6')).toBe('too_many_dice');
     expect(code('1000000d6')).toBe('too_many_dice');
