@@ -55,3 +55,31 @@ export async function login(
   if (res.statusCode !== 200 || !sid) throw new Error(`dev-login failed: ${res.statusCode} ${res.body}`);
   return { cookie: `sid=${sid.value}`, userId: (res.json() as { userId: string }).userId };
 }
+
+export type Session = { cookie: string; userId: string };
+
+export async function seedCampaign(
+  t: { app: FastifyInstance },
+): Promise<{ campaignId: string; gm: Session; player: Session }> {
+  const gm = await login(t.app, 'Mestre');
+  const player = await login(t.app, 'Lia');
+  const created = await t.app.inject({
+    method: 'POST',
+    url: '/api/campaigns',
+    headers: { cookie: gm.cookie },
+    payload: { name: 'Estalagem do Corvo', rulesVersion: '2024' },
+  });
+  const { id: campaignId } = created.json() as { id: string };
+  const invite = await t.app.inject({
+    method: 'POST',
+    url: `/api/campaigns/${campaignId}/invites`,
+    headers: { cookie: gm.cookie },
+  });
+  const { token } = invite.json() as { token: string };
+  await t.app.inject({
+    method: 'POST',
+    url: `/api/invites/${token}/accept`,
+    headers: { cookie: player.cookie },
+  });
+  return { campaignId, gm, player };
+}

@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { Rng } from '@rpgai/shared';
 import type { DiscordClient } from './auth/discord';
 import { registerAuthRoutes } from './auth/routes';
+import { registerCampaignRoutes } from './campaigns/routes';
 import type { Config } from './config';
 import type { Db } from './db/client';
 import type { FileStore } from './files/store';
@@ -20,5 +21,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(cookie);
   app.get('/api/health', async () => ({ ok: true }));
   await registerAuthRoutes(app, deps);
+  await registerCampaignRoutes(app, deps);
   return app;
 }
