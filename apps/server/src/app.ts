@@ -4,6 +4,7 @@ import type { Rng } from '@rpgai/shared';
 import type { DiscordClient } from './auth/discord';
 import { registerAuthRoutes } from './auth/routes';
 import { registerCampaignRoutes } from './campaigns/routes';
+import { registerFileRoutes } from './files/routes';
 import type { Config } from './config';
 import type { Db } from './db/client';
 import type { FileStore } from './files/store';
@@ -22,5 +23,6 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/health', async () => ({ ok: true }));
   await registerAuthRoutes(app, deps);
   await registerCampaignRoutes(app, deps);
+  await registerFileRoutes(app, deps);
   return app;
 }
