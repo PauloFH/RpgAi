@@ -1,1 +1,1 @@
-export default ['packages/shared'];
+export default ['packages/shared', 'apps/server'];
