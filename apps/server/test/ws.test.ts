@@ -63,6 +63,21 @@ describe('conexão em tempo real', () => {
     const snap = await back.next(m => m.t === 'snapshot');
     expect(snap.state.tokens).toEqual([expect.objectContaining({ x: 6, y: 6 })]);
   });
+  it('dono recebe not_found ao mover token que não vê: camada do mestre ou outro mapa', async () => {
+    const { gm, pl, m1, m2, player } = await wsSetup({ secondMap: true });
+    const create = (id: string, mapId: string) => ({ t: 'cmd', id, action: { type: 'token.create', mapId, name: id, x: 0, y: 0, ownerIds: [player.userId] } });
+    gm.send(create('hidden', m1));
+    const hidden = (await pl.next((m) => m.t === 'event' && m.event.type === 'token.upserted')).event.token;
+    gm.send({ t: 'cmd', id: 'layer', action: { type: 'token.update', tokenId: hidden.id, layer: 'gm' } });
+    await pl.next((m) => m.t === 'event' && m.event.type === 'token.removed');
+    pl.send({ t: 'cmd', id: 'move1', action: { type: 'token.update', tokenId: hidden.id, x: 1, y: 1 } });
+    expect(await pl.next((m) => m.t === 'error')).toMatchObject({ id: 'move1', code: 'not_found' });
+
+    gm.send(create('elsewhere', m2));
+    const created = await gm.next((m) => m.t === 'event' && m.event.type === 'token.upserted' && m.event.token.name === 'elsewhere');
+    pl.send({ t: 'cmd', id: 'move2', action: { type: 'token.update', tokenId: created.event.token.id, x: 1, y: 1 } });
+    expect(await pl.next((m) => m.t === 'error')).toMatchObject({ id: 'move2', code: 'not_found' });
+  });
   it('membro removido é desconectado', async () => {
     const { gm, pl, player } = await wsSetup();
     gm.send({ t: 'cmd', id: 'r', action: { type: 'member.remove', userId: player.userId } });

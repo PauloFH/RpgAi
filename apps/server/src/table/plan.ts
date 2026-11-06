@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { ChatError, DiceError, isInsideGrid, type Action, type ErrorCode, type Member, type Rng } from '@rpgai/shared';
+import { canSeeToken, ChatError, DiceError, effectiveMapId, isInsideGrid, type Action, type ErrorCode, type Member, type Rng } from '@rpgai/shared';
 import type { Db } from '../db/client';
 import { uploads } from '../db/schema';
 import { buildMessage } from './chat';
@@ -143,6 +143,9 @@ export async function planAction(
     case 'token.update': {
       const token = findToken(action.tokenId);
       if (!token) return NOT_FOUND.token;
+      // First of all: any other answer would tell a player that a hidden token exists.
+      const viewer = { userId: actor.userId, role: actor.role, mapId: effectiveMapId(actor, state.campaign) };
+      if (!canSeeToken(viewer, token)) return NOT_FOUND.token;
       const { type: _type, tokenId, ...rest } = action;
       const fields = defined(rest);
       if (isEmpty(fields)) return NOTHING_TO_CHANGE;

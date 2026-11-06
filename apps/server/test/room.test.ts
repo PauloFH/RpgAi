@@ -257,3 +257,44 @@ describe('fila da sala', () => {
     expect(await room.dispatch(G, { type: 'chat.send', text: 'sigo aqui' })).toMatchObject({ ok: true });
   });
 });
+
+describe('token que o jogador não vê', () => {
+  const owned = async (s: Awaited<ReturnType<typeof setup>>, mapId: string) => {
+    await s.room.dispatch(s.G, { type: 'token.create', mapId, name: 'Lia', x: 0, y: 0, size: 1, color: '#5b8fd9', layer: 'tokens', ownerIds: [s.P.userId] });
+    return s.room.state().tokens.at(-1)!;
+  };
+
+  it('dono não move o próprio token depois que ele vai para a camada do mestre', async () => {
+    const s = await setup();
+    const token = await owned(s, s.m1);
+    await s.room.dispatch(s.G, { type: 'token.update', tokenId: token.id, layer: 'gm' });
+    expect(await s.room.dispatch(s.P, { type: 'token.update', tokenId: token.id, x: 1, y: 1 })).toMatchObject({ ok: false, code: 'not_found' });
+    expect(s.room.state().tokens[0]).toMatchObject({ x: 0, y: 0 });
+  });
+  it('dono não move o próprio token num mapa em que não está', async () => {
+    const s = await setup({ secondMap: true });
+    const token = await owned(s, s.m2); // o jogador segue no mapa padrão, m1
+    expect(await s.room.dispatch(s.P, { type: 'token.update', tokenId: token.id, x: 1, y: 1 })).toMatchObject({ ok: false, code: 'not_found' });
+  });
+  it('a resposta é igual à de um token que não existe, antes das outras checagens', async () => {
+    const s = await setup();
+    const token = await owned(s, s.m1);
+    await s.room.dispatch(s.G, { type: 'token.update', tokenId: token.id, layer: 'gm' });
+    await s.room.dispatch(s.G, { type: 'campaign.update', playersCanMove: false });
+    const missing = await s.room.dispatch(s.P, { type: 'token.update', tokenId: randomUUID(), x: 1, y: 1 });
+    for (const attempt of [
+      { x: 1, y: 1 }, // sem permissão de mover
+      { x: 99, y: 99 }, // fora do grid
+      { name: 'Outro' }, // campo que o jogador não altera
+      {}, // nada para alterar
+    ]) {
+      expect(await s.room.dispatch(s.P, { type: 'token.update', tokenId: token.id, ...attempt })).toEqual(missing);
+    }
+  });
+  it('o mestre segue movendo tokens de qualquer camada e mapa', async () => {
+    const s = await setup({ secondMap: true });
+    const token = await owned(s, s.m2);
+    await s.room.dispatch(s.G, { type: 'token.update', tokenId: token.id, layer: 'gm' });
+    expect((await s.room.dispatch(s.G, { type: 'token.update', tokenId: token.id, x: 1, y: 1 })).ok).toBe(true);
+  });
+});
