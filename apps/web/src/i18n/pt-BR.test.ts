@@ -11,6 +11,9 @@ describe('errorText', () => {
       expect(errorText(code)).not.toBe(errorText('invalid'));
     },
   );
+  it.each(['access_denied', 'bad_state', 'discord_error', 'discord_not_configured'])('login: %s tem texto próprio', (code) => {
+    expect(errorText(code)).not.toBe(FALLBACK);
+  });
   it.each(['unknown_member', 'bad_whisper'])('%s mostra a sintaxe para nomes com espaço', (code) => {
     expect(errorText(code)).toContain('/w "Paulo Roberto" oi');
   });

@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PRODUCTION_LOGGER } from '../src/app';
 import type { DiscordClient } from '../src/auth/discord';
-import { sessions } from '../src/db/schema';
+import { sessions, users } from '../src/db/schema';
 import { createTestApp, login, testConfig } from './helpers';
 
 const fakeDiscord: DiscordClient = {
@@ -41,13 +41,51 @@ it('fluxo do Discord cria usuário com avatar', async () => {
   });
 });
 
-it('state diferente é recusado', async () => {
-  const t = await createTestApp({ discord: fakeDiscord });
-  const cb = await t.app.inject({
-    url: '/auth/discord/callback?code=good&state=x',
-    cookies: { oauth_state: 'y' },
+describe('login pelo Discord que não dá certo volta à página inicial com o motivo', () => {
+  const expectFailure = async (t: Awaited<ReturnType<typeof createTestApp>>, res: Awaited<ReturnType<typeof t.app.inject>>, code: string) => {
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe(`/?login_error=${code}`);
+    expect(res.cookies.find((c) => c.name === 'sid')).toBeUndefined();
+    expect(await t.db.select().from(sessions)).toHaveLength(0);
+    expect(await t.db.select().from(users)).toHaveLength(0);
+  };
+
+  it('state diferente', async () => {
+    const t = await createTestApp({ discord: fakeDiscord });
+    const res = await t.app.inject({ url: '/auth/discord/callback?code=good&state=x', cookies: { oauth_state: 'y' } });
+    await expectFailure(t, res, 'bad_state');
   });
-  expect(cb.statusCode).toBe(400);
+  it('sem cookie de state, sem state ou sem código', async () => {
+    const t = await createTestApp({ discord: fakeDiscord });
+    await expectFailure(t, await t.app.inject({ url: '/auth/discord/callback?code=good&state=x' }), 'bad_state');
+    await expectFailure(t, await t.app.inject({ url: '/auth/discord/callback?code=good', cookies: { oauth_state: 'x' } }), 'bad_state');
+    await expectFailure(t, await t.app.inject({ url: '/auth/discord/callback?state=x', cookies: { oauth_state: 'x' } }), 'bad_state');
+  });
+  it('a pessoa cancelou no Discord', async () => {
+    const t = await createTestApp({ discord: fakeDiscord });
+    const res = await t.app.inject({
+      url: '/auth/discord/callback?error=access_denied&error_description=x&state=s',
+      cookies: { oauth_state: 's' },
+    });
+    await expectFailure(t, res, 'access_denied');
+  });
+  it('erro com state errado conta como state errado, e não ecoa o que veio na URL', async () => {
+    const t = await createTestApp({ discord: fakeDiscord });
+    const denied = await t.app.inject({ url: '/auth/discord/callback?error=access_denied&state=x', cookies: { oauth_state: 'y' } });
+    await expectFailure(t, denied, 'bad_state');
+    const other = await t.app.inject({ url: '/auth/discord/callback?error=%3Cscript%3E&state=s', cookies: { oauth_state: 's' } });
+    await expectFailure(t, other, 'discord_error');
+  });
+  it('código e state certos mas erro do Discord', async () => {
+    const t = await createTestApp({ discord: fakeDiscord });
+    const res = await t.app.inject({ url: '/auth/discord/callback?code=ruim&state=s', cookies: { oauth_state: 's' } });
+    await expectFailure(t, res, 'discord_error');
+  });
+  it('Discord não configurado, na ida e na volta', async () => {
+    const t = await createTestApp();
+    await expectFailure(t, await t.app.inject({ url: '/auth/discord' }), 'discord_not_configured');
+    await expectFailure(t, await t.app.inject({ url: '/auth/discord/callback?code=good&state=s' }), 'discord_not_configured');
+  });
 });
 
 it('falha do Discord fica registrada no log, sem o código recebido', async () => {

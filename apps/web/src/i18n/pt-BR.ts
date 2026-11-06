@@ -132,6 +132,10 @@ const errors: Record<string, string> = {
   too_large: 'O arquivo é grande demais (máximo de 20 MB).',
   campaign_storage_full: 'O espaço de imagens desta campanha acabou.',
   unauthenticated: 'Entre para continuar.',
+  access_denied: 'O login com o Discord foi cancelado.',
+  bad_state: 'Não foi possível confirmar o login com o Discord. Tente entrar de novo.',
+  discord_error: 'O Discord não respondeu como esperado. Tente entrar de novo.',
+  discord_not_configured: 'O login com o Discord não está configurado neste servidor.',
 };
 
 export function errorText(code: string): string {

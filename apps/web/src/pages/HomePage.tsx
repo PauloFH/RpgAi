@@ -28,13 +28,17 @@ export function HomePage() {
   const [session, setSession] = useState<Session>({ state: 'loading' });
   const location = useLocation();
   const navigate = useNavigate();
-  const [notice] = useState(() => (location.state as { notice?: string } | null)?.notice ?? null);
+  const [notice] = useState(() => {
+    const fromTable = (location.state as { notice?: string } | null)?.notice;
+    const loginError = new URLSearchParams(location.search).get('login_error');
+    return fromTable ?? (loginError ? errorText(loginError) : null);
+  });
   useTitle(t.home.title);
 
   // A notice is for this arrival only: reloading the page must not show it again.
   useEffect(() => {
-    if (location.state) navigate(location.pathname, { replace: true, state: null });
-  }, [location.state, location.pathname, navigate]);
+    if (location.state || location.search) navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.search, location.pathname, navigate]);
 
   useEffect(() => {
     api

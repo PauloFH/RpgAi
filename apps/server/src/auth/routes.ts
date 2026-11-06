@@ -14,7 +14,11 @@ import {
 } from './sessions';
 
 const DevLoginBody = z.object({ name: z.string().trim().min(1).max(80) });
-const CallbackQuery = z.object({ code: z.string().min(1), state: z.string().min(1) });
+const CallbackQuery = z.object({
+  state: z.string().min(1),
+  code: z.string().min(1).optional(),
+  error: z.string().optional(),
+});
 
 export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps, table: TableHub): Promise<void> {
   const { config, db, discord } = deps;
@@ -25,6 +29,9 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps, ta
     path: '/',
   };
   const redirectUri = `${config.publicUrl}/auth/discord/callback`;
+
+  type LoginError = 'access_denied' | 'bad_state' | 'discord_error' | 'discord_not_configured';
+  const loginFailed = (reply: FastifyReply, code: LoginError) => reply.redirect(`/?login_error=${code}`);
 
   const startSession = async (reply: FastifyReply, userId: string) => {
     const token = await createSession(db, userId);
@@ -50,27 +57,34 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps, ta
   }
 
   app.get('/auth/discord', async (_req, reply) => {
-    if (!discord) return reply.code(503).send({ error: 'discord_not_configured' });
+    if (!discord) return loginFailed(reply, 'discord_not_configured');
     const state = randomBytes(16).toString('hex');
     reply.setCookie('oauth_state', state, { ...cookieBase, maxAge: 600 });
     return reply.redirect(discord.authorizeUrl(state, redirectUri));
   });
 
   app.get('/auth/discord/callback', async (req, reply) => {
-    if (!discord) return reply.code(503).send({ error: 'discord_not_configured' });
+    if (!discord) return loginFailed(reply, 'discord_not_configured');
     const query = CallbackQuery.safeParse(req.query);
     const expected = req.cookies.oauth_state;
-    if (!query.success || !expected || query.data.state !== expected) {
-      return reply.code(400).send({ error: 'bad_state' });
+    // Checked before anything else in the URL: without the right state, none of it is from Discord.
+    if (!query.success || !expected || query.data.state !== expected) return loginFailed(reply, 'bad_state');
+    const { code, error } = query.data;
+    if (error) {
+      reply.clearCookie('oauth_state', { path: '/' });
+      if (error === 'access_denied') return loginFailed(reply, 'access_denied');
+      app.log.error({ error }, 'discord refused the login');
+      return loginFailed(reply, 'discord_error');
     }
+    if (!code) return loginFailed(reply, 'bad_state');
     reply.clearCookie('oauth_state', { path: '/' });
     let profile;
     try {
-      const accessToken = await discord.exchangeCode(query.data.code, redirectUri);
+      const accessToken = await discord.exchangeCode(code, redirectUri);
       profile = await discord.getUser(accessToken);
     } catch (err) {
       app.log.error({ err }, 'discord login failed');
-      return reply.code(502).send({ error: 'discord_error' });
+      return loginFailed(reply, 'discord_error');
     }
     const displayName = profile.global_name ?? profile.username;
     const avatarUrl = profile.avatar
