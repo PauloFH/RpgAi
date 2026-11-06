@@ -6,6 +6,7 @@ export interface Config {
   databaseUrl: string;
   uploadDir: string;
   maxUploadBytes: number;
+  maxCampaignUploadBytes: number;
   devLogin: boolean;
   production: boolean;
   discord: { clientId: string; clientSecret: string } | null;
@@ -17,6 +18,7 @@ const EnvSchema = z.object({
   PUBLIC_URL: z.string().min(1).default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1).default('pglite:./data/pglite'),
   UPLOAD_DIR: z.string().min(1).default('./data/uploads'),
+  MAX_CAMPAIGN_UPLOAD_MB: z.coerce.number().int().positive().default(500),
   DEV_LOGIN: z.string().optional(),
   NODE_ENV: z.string().optional(),
   DISCORD_CLIENT_ID: z.string().optional(),
@@ -33,6 +35,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl: e.DATABASE_URL,
     uploadDir: e.UPLOAD_DIR,
     maxUploadBytes: 20 * 1024 * 1024,
+    maxCampaignUploadBytes: e.MAX_CAMPAIGN_UPLOAD_MB * 1024 * 1024,
     devLogin: e.DEV_LOGIN === 'true' && !production,
     production,
     discord:

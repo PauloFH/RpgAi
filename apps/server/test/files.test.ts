@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { uploads } from '../src/db/schema';
 import { createTestApp, login, pngBuffer, seedCampaign, testConfig, uploadFile } from './helpers';
 
 describe('uploads', () => {
@@ -29,6 +30,27 @@ describe('uploads', () => {
     expect(big.statusCode).toBe(413);
     expect(big.json()).toEqual({ error: 'too_large' });
     expect((await uploadFile(t.app, player.cookie, campaignId, pngBuffer(10, 10), 'm.png')).statusCode).toBe(403);
+    await t.close();
+  });
+  it('recusa o upload que passaria do limite da campanha, sem gravar nada', async () => {
+    const png = pngBuffer(50, 50);
+    const t = await createTestApp({ config: { ...testConfig(), maxCampaignUploadBytes: png.length * 2 } });
+    const put = vi.spyOn(t.deps.files, 'put');
+    const { campaignId, gm } = await seedCampaign(t);
+    for (let i = 0; i < 2; i++) expect((await uploadFile(t.app, gm.cookie, campaignId, png, 'm.png')).statusCode).toBe(201);
+    expect(put).toHaveBeenCalledTimes(2);
+
+    const full = await uploadFile(t.app, gm.cookie, campaignId, png, 'm.png');
+    expect(full.statusCode).toBe(413);
+    expect(full.json()).toEqual({ error: 'campaign_storage_full' });
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(await t.db.select().from(uploads)).toHaveLength(2);
+
+    // The limit is per campaign: another one still has all of it.
+    const { id: other } = (
+      await t.app.inject({ method: 'POST', url: '/api/campaigns', headers: { cookie: gm.cookie }, payload: { name: 'Outra', rulesVersion: '2024' } })
+    ).json();
+    expect((await uploadFile(t.app, gm.cookie, other, png, 'm.png')).statusCode).toBe(201);
     await t.close();
   });
   it('não aceita path traversal na leitura', async () => {

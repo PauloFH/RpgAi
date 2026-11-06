@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import multipart from '@fastify/multipart';
-import { eq } from 'drizzle-orm';
+import { eq, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { imageSize } from 'image-size';
 import { z } from 'zod';
@@ -49,6 +49,11 @@ export async function registerFileRoutes(app: FastifyInstance, deps: AppDeps): P
     }
     const type = TYPES[info.type ?? ''];
     if (!type || !info.width || !info.height) return reply.code(400).send({ error: 'invalid_image' });
+
+    const [usage] = await db.select({ bytes: sum(uploads.sizeBytes) }).from(uploads).where(eq(uploads.campaignId, id));
+    if (Number(usage?.bytes ?? 0) + data.length > config.maxCampaignUploadBytes) {
+      return reply.code(413).send({ error: 'campaign_storage_full' });
+    }
 
     const key = `${id}/${randomUUID()}.${type.ext}`;
     await files.put(key, data);

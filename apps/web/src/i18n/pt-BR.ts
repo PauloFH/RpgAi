@@ -125,6 +125,7 @@ const errors: Record<string, string> = {
   dice: 'Expressão de dados inválida.',
   invalid_image: 'Imagem inválida. Use PNG, JPEG ou WebP.',
   too_large: 'O arquivo é grande demais (máximo de 20 MB).',
+  campaign_storage_full: 'O espaço de imagens desta campanha acabou.',
   unauthenticated: 'Entre para continuar.',
 };
 

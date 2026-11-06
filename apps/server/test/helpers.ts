@@ -15,6 +15,7 @@ export function testConfig(): Config {
     databaseUrl: 'pglite:memory',
     uploadDir: mkdtempSync(join(tmpdir(), 'rpgai-uploads-')),
     maxUploadBytes: 20 * 1024 * 1024,
+    maxCampaignUploadBytes: 500 * 1024 * 1024,
     devLogin: true,
     production: false,
     discord: null,
