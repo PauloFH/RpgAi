@@ -8,6 +8,7 @@ import type { TableConnection } from './socket';
 import { useTable } from './store';
 import { fitCamera, screenToWorld, zoomAt } from './camera';
 import type { Camera } from './camera';
+import { canDragToken } from './mapView';
 
 /** A grid being adjusted but not yet confirmed; drawn in place of the map's real one. */
 export interface GridPreview { mapId: string; gridSize: number; gridOffsetX: number; gridOffsetY: number }
@@ -83,9 +84,8 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
 
     const canMove = (token: Token): boolean => {
       const st = useTable.getState().state;
-      if (!st) return false;
-      if (st.me.role === 'gm') return true;
-      return st.campaign.playersCanMove && token.ownerIds.includes(st.me.userId);
+      const { mapId: id, gridPreview: preview } = propsRef.current;
+      return st !== null && canDragToken(st, token, preview?.mapId === id);
     };
 
     const clearChildren = (c: Container) => {
@@ -401,6 +401,7 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
   }, [mapId, selectedTokenId]);
 
   useEffect(() => {
+    cancelRef.current?.(); // a drag under way was measured against the grid that just changed
     redrawRef.current?.();
   }, [gridPreview]);
 
