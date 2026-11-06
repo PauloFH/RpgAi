@@ -40,6 +40,7 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
   const propsRef = useRef({ mapId, conn, onError, selectedTokenId, onSelectToken });
   propsRef.current = { mapId, conn, onError, selectedTokenId, onSelectToken };
   const redrawRef = useRef<(() => void) | null>(null);
+  const cancelRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -62,6 +63,7 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
     const loading = new Set<string>();
     let drag: DragState | null = null;
     let pan: PanState | null = null;
+    const tokenNodes = new Map<string, Container>();
 
     const loadTexture = (url: string) => {
       if (textures.has(url) || loading.has(url)) return;
@@ -150,6 +152,7 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
       const map = st?.maps.find(m => m.id === id);
       clearChildren(bgLayer);
       clearChildren(tokenLayer);
+      tokenNodes.clear();
       gridLayer.clear();
       hintLayer.clear();
       if (!st || !map) return;
@@ -186,25 +189,42 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
           const o = overrides.get(token.id);
           pos = cellToPixel(map, o?.x ?? token.x, o?.y ?? token.y);
         }
-        tokenLayer.addChild(buildToken(token, map, token.id === sel, pos.px, pos.py));
+        const node = buildToken(token, map, token.id === sel, pos.px, pos.py);
+        tokenNodes.set(token.id, node);
+        tokenLayer.addChild(node);
       }
-
-      if (drag?.moved) {
-        const dragged = drag;
-        const token = st.tokens.find(t => t.id === dragged.tokenId);
-        if (token) {
-          const cell = dragCell(map, dragged);
-          const ok = isInsideGrid(map, cell.x, cell.y, token.size);
-          const { px, py } = cellToPixel(map, cell.x, cell.y);
-          const side = token.size * map.gridSize;
-          hintLayer.rect(px, py, side, side).fill({ color: ok ? 0xffd700 : 0xff4444, alpha: 0.25 });
-        }
-      }
+      drawHint();
     }
     redrawRef.current = redraw;
 
+    function drawHint() {
+      hintLayer.clear();
+      const st = useTable.getState().state;
+      const map = currentMap();
+      if (!drag?.moved || !st || !map) return;
+      const dragged = drag;
+      const token = st.tokens.find(t => t.id === dragged.tokenId);
+      if (!token) return;
+      const cell = dragCell(map, dragged);
+      const ok = isInsideGrid(map, cell.x, cell.y, token.size);
+      const { px, py } = cellToPixel(map, cell.x, cell.y);
+      const side = token.size * map.gridSize;
+      hintLayer.rect(px, py, side, side).fill({ color: ok ? 0xffd700 : 0xff4444, alpha: 0.25 });
+    }
+
+    function cancelGesture() {
+      if (!drag && !pan) return;
+      drag = null;
+      pan = null;
+      redraw();
+    }
+    cancelRef.current = cancelGesture;
+
     function onTokenDown(e: FederatedPointerEvent, token: Token) {
-      if (drag || pan) return;
+      if (e.button !== 0) return;
+      if (drag?.moved) cancelGesture();
+      drag = null;
+      pan = null;
       e.stopPropagation();
       const map = currentMap();
       if (!map) return;
@@ -225,7 +245,9 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
     }
 
     function onStageDown(e: FederatedPointerEvent) {
-      if (drag || pan) return;
+      if (e.button !== 0) return;
+      if (drag?.moved) cancelGesture();
+      drag = null;
       pan = { startSx: e.global.x, startSy: e.global.y, camX: cam.x, camY: cam.y, moved: false };
     }
 
@@ -237,7 +259,8 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
         const { wx, wy } = screenToWorld(cam, e.global.x, e.global.y);
         drag.wx = wx - drag.grabDx;
         drag.wy = wy - drag.grabDy;
-        redraw();
+        tokenNodes.get(drag.tokenId)?.position.set(drag.wx, drag.wy);
+        drawHint();
       } else if (pan) {
         const dx = e.global.x - pan.startSx;
         const dy = e.global.y - pan.startSy;
@@ -266,7 +289,7 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
         if (token) propsRef.current.onSelectToken?.(token.id);
         return;
       }
-      if (!st || !map || !token) { redraw(); return; }
+      if (!st || !map || !token || token.mapId !== map.id) { redraw(); return; }
       const cell = dragCell(map, d);
       const o = overrides.get(token.id);
       const curX = o?.x ?? token.x;
@@ -296,7 +319,11 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
       applyCamera();
     };
 
-    const unsubscribe = useTable.subscribe(state => {
+    const unsubscribe = useTable.subscribe((state, prev) => {
+      const a = state.state;
+      const b = prev.state;
+      if (a && b && a.maps === b.maps && a.tokens === b.tokens && a.me === b.me
+        && a.campaign.playersCanMove === b.campaign.playersCanMove) return;
       const tokens = state.state?.tokens ?? [];
       for (const [id, o] of overrides) {
         if (tokens.find(t => t.id === id) !== o.base) overrides.delete(id);
@@ -336,6 +363,8 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
         app.stage.on('pointermove', onMove);
         app.stage.on('pointerup', onUp);
         app.stage.on('pointerupoutside', onUp);
+        app.stage.on('pointercancel', cancelGesture);
+        window.addEventListener('blur', cancelGesture);
         resizeObserver.observe(host);
         redraw();
       })
@@ -346,6 +375,8 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
     return () => {
       disposed = true;
       redrawRef.current = null;
+      cancelRef.current = null;
+      window.removeEventListener('blur', cancelGesture);
       unsubscribe();
       resizeObserver.disconnect();
       if (ready) {
@@ -356,6 +387,7 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
   }, []);
 
   useEffect(() => {
+    cancelRef.current?.();
     redrawRef.current?.();
   }, [mapId, selectedTokenId]);
 
