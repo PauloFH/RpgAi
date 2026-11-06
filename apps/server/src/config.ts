@@ -26,12 +26,26 @@ const EnvSchema = z.object({
   WEB_DIST: z.string().optional(),
 });
 
+/** What production may not run without: the defaults above only make sense on a dev machine. */
+function missingInProduction(env: NodeJS.ProcessEnv): string[] {
+  const missing: string[] = [];
+  if (!env.PUBLIC_URL) missing.push('PUBLIC_URL');
+  if (!/^postgres(ql)?:\/\//.test(env.DATABASE_URL ?? '')) missing.push('DATABASE_URL (uma URL postgres://)');
+  if (!env.DISCORD_CLIENT_ID) missing.push('DISCORD_CLIENT_ID');
+  if (!env.DISCORD_CLIENT_SECRET) missing.push('DISCORD_CLIENT_SECRET');
+  return missing;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const e = EnvSchema.parse(env);
   const production = e.NODE_ENV === 'production';
+  if (production) {
+    const missing = missingInProduction(env);
+    if (missing.length > 0) throw new Error(`Configuração de produção incompleta: ${missing.join(', ')}`);
+  }
   return {
     port: e.PORT,
-    publicUrl: e.PUBLIC_URL,
+    publicUrl: e.PUBLIC_URL.replace(/\/+$/, ''),
     databaseUrl: e.DATABASE_URL,
     uploadDir: e.UPLOAD_DIR,
     maxUploadBytes: 20 * 1024 * 1024,

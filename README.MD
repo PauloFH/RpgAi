@@ -37,13 +37,14 @@ npm run build     # gera apps/web/dist e apps/server/dist/index.js
 | Variável | Padrão | Descrição |
 | --- | --- | --- |
 | `PORT` | `3000` | Porta do servidor. |
-| `PUBLIC_URL` | `http://localhost:5173` | URL pública do site; usada no redirect do Discord e na checagem de `Origin` do WebSocket. |
-| `DATABASE_URL` | `pglite:./data/pglite` | `pglite:<pasta>`, `pglite:memory` ou uma URL `postgres://`. |
+| `PUBLIC_URL` | `http://localhost:5173` | URL pública do site; usada no redirect do Discord e na checagem de `Origin` do WebSocket. Obrigatória em produção. |
+| `DATABASE_URL` | `pglite:./data/pglite` | `pglite:<pasta>`, `pglite:memory` ou uma URL `postgres://`. Em produção, obrigatória e só `postgres://`. |
 | `UPLOAD_DIR` | `./data/uploads` | Pasta dos arquivos enviados (mapas, imagens). |
+| `MAX_CAMPAIGN_UPLOAD_MB` | `500` | Espaço total de imagens por campanha, em MB. |
 | `DEV_LOGIN` | desligado | `true` habilita `/auth/dev-login`; ignorado em produção. |
 | `NODE_ENV` | | `production` ativa o modo de produção. |
-| `DISCORD_CLIENT_ID` | | Client ID do app no Discord. |
-| `DISCORD_CLIENT_SECRET` | | Client Secret do app no Discord. |
+| `DISCORD_CLIENT_ID` | | Client ID do app no Discord. Obrigatório em produção. |
+| `DISCORD_CLIENT_SECRET` | | Client Secret do app no Discord. Obrigatório em produção. |
 | `WEB_DIST` | | Pasta do build da interface; se definida, o servidor a serve junto com a API. |
 | `MIGRATIONS_DIR` | `migrations` ao lado do bundle | Pasta das migrações SQL. |
 
@@ -58,9 +59,11 @@ npm run build     # gera apps/web/dist e apps/server/dist/index.js
 
 ```bash
 npm run build
-NODE_ENV=production WEB_DIST=apps/web/dist PUBLIC_URL=http://localhost:3000 \
-  DATABASE_URL=pglite:./data/prod DISCORD_CLIENT_ID=... DISCORD_CLIENT_SECRET=... npm start
+NODE_ENV=production WEB_DIST=apps/web/dist PUBLIC_URL=https://mesa.exemplo.com \
+  DATABASE_URL=postgres://usuario:senha@host:5432/rpgai DISCORD_CLIENT_ID=... DISCORD_CLIENT_SECRET=... npm start
 ```
+
+Com `NODE_ENV=production`, o servidor se recusa a subir sem `PUBLIC_URL`, sem uma `DATABASE_URL` `postgres://` ou sem as credenciais do Discord, e diz o que falta. O PGlite é só para desenvolvimento.
 
 Servidor e interface saem numa só porta. Rotas fora de `/api`, `/auth`, `/files` e `/ws` devolvem o `index.html` da interface.
 
