@@ -1,9 +1,9 @@
-import { cryptoRng } from '@rpgai/shared';
 import { buildApp } from './app';
 import { createDiscordClient } from './auth/discord';
 import { loadConfig } from './config';
 import { createDb, runMigrations } from './db/client';
 import { createLocalFileStore } from './files/store';
+import { cryptoRng } from './table/rng';
 
 const config = loadConfig();
 const { db } = await createDb(config.databaseUrl);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerMessage } from '@rpgai/shared';
-import { ActionError, connectTable } from './socket';
+import { ActionError, connectTable, tableSocketUrl } from './socket';
 
 class FakeWS {
   static OPEN = 1;
@@ -123,5 +123,12 @@ describe('connectTable', () => {
     FakeWS.last.onmessage?.({ data: 'nao json' });
     expect(handlers.onMessage).toHaveBeenCalledTimes(1);
     conn.close();
+  });
+});
+
+describe('tableSocketUrl', () => {
+  it('segue o protocolo e o host da página', () => {
+    expect(tableSocketUrl('c1', { protocol: 'http:', host: 'localhost:5173' })).toBe('ws://localhost:5173/ws?campaign=c1');
+    expect(tableSocketUrl('c1', { protocol: 'https:', host: 'mesa.example' })).toBe('wss://mesa.example/ws?campaign=c1');
   });
 });

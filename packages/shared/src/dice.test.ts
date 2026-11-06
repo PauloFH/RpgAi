@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDice, rollDice, DiceError, cryptoRng } from './dice';
+import { parseDice, rollDice, DiceError } from './dice';
 
 const seq = (...v: number[]) => { let i = 0; return () => v[i++]!; };
 const code = (src: string) => { try { parseDice(src); return 'ok'; } catch (e) { return (e as DiceError).code; } };
@@ -38,8 +38,5 @@ describe('parseDice/rollDice', () => {
     expect(code('1d1')).toBe('bad_faces');
     expect(code('1d1001')).toBe('bad_faces');
     expect(code('1'.repeat(201))).toBe('too_long');
-  });
-  it('cryptoRng fica entre 1 e faces', () => {
-    for (let i = 0; i < 1000; i++) { const v = cryptoRng(6); expect(v).toBeGreaterThanOrEqual(1); expect(v).toBeLessThanOrEqual(6); }
   });
 });

@@ -1,5 +1,3 @@
-import { randomInt } from 'node:crypto';
-
 export type DiceTerm =
   | { kind: 'dice'; sign: 1 | -1; count: number; faces: number; keep?: { mode: 'h' | 'l'; n: number } }
   | { kind: 'const'; sign: 1 | -1; value: number };
@@ -16,7 +14,6 @@ export class DiceError extends Error {
 }
 
 export type Rng = (faces: number) => number;
-export const cryptoRng: Rng = (faces) => randomInt(1, faces + 1);
 
 export interface TermResult { term: DiceTerm; rolls: number[]; kept: number[]; subtotal: number }
 export interface RollResult { source: string; total: number; terms: TermResult[] }

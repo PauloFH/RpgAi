@@ -20,6 +20,12 @@ export interface TableHandlers {
   onClosed?(code: number): void;
 }
 
+/** The socket address of a campaign's table, on the same host and security as the page. */
+export function tableSocketUrl(campaignId: string, page: Pick<Location, 'protocol' | 'host'> = window.location): string {
+  const scheme = page.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${scheme}//${page.host}/ws?campaign=${encodeURIComponent(campaignId)}`;
+}
+
 const BACKOFF_MS = [1000, 2000, 5000];
 const NO_RECONNECT = new Set([4401, 4403]);
 

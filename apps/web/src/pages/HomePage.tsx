@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { errorText, t } from '../i18n/pt-BR';
 import { useTitle } from '../useTitle';
@@ -26,7 +26,15 @@ type Session =
 
 export function HomePage() {
   const [session, setSession] = useState<Session>({ state: 'loading' });
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [notice] = useState(() => (location.state as { notice?: string } | null)?.notice ?? null);
   useTitle(t.home.title);
+
+  // A notice is for this arrival only: reloading the page must not show it again.
+  useEffect(() => {
+    if (location.state) navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
 
   useEffect(() => {
     api
@@ -62,6 +70,7 @@ export function HomePage() {
       <main className="page narrow">
         <h1>{t.home.title}</h1>
         <p className="dim">{t.home.tagline}</p>
+        {notice && <p role="status">{notice}</p>}
         <section className="panel">
           <LoginOptions />
         </section>
@@ -69,7 +78,7 @@ export function HomePage() {
     );
   }
 
-  return <Dashboard me={session.me} onLogout={() => setSession({ state: 'out' })} />;
+  return <Dashboard me={session.me} notice={notice} onLogout={() => setSession({ state: 'out' })} />;
 }
 
 function readPendingInvite(): string | null {
@@ -80,7 +89,7 @@ function readPendingInvite(): string | null {
   }
 }
 
-function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
+function Dashboard({ me, notice, onLogout }: { me: Me; notice: string | null; onLogout: () => void }) {
   const navigate = useNavigate();
   const [pending] = useState(readPendingInvite);
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
@@ -136,6 +145,7 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
         <span className="dim">{me.displayName}</span>
         <button onClick={logout}>{t.home.logout}</button>
       </header>
+      {notice && <p role="status">{notice}</p>}
       {error && (
         <p className="error" role="alert">
           {error}

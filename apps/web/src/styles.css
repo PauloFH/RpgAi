@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #121016;
   --panel: #211e28;
   --surface: #17151c;
@@ -154,4 +155,269 @@ button:hover,
 }
 .badge.player {
   color: var(--green);
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+button:disabled:hover {
+  border-color: var(--line);
+}
+.danger {
+  background: var(--red);
+  border-color: var(--red);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Mesa */
+.table-page {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.table-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.25rem 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+.table-bar h1 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+.reconnecting {
+  margin-left: auto;
+  color: var(--gold);
+  font-weight: 700;
+}
+.table-loading {
+  padding: 1rem;
+}
+.table-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  min-height: 0;
+}
+.table-columns.with-panel {
+  grid-template-columns: 320px minmax(0, 1fr) 340px;
+}
+.table-map {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background: #101014;
+}
+.table-empty {
+  padding: 2rem;
+  text-align: center;
+}
+.table-error {
+  position: absolute;
+  left: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--red);
+  border-radius: 6px;
+  color: var(--red);
+}
+
+/* Chat */
+.chat {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  font-size: 0.95rem;
+}
+.chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.75rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.chat-form {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+.message {
+  padding: 0.35rem 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.message.restricted {
+  border-color: var(--blue);
+  background: #1b2130;
+}
+.message-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.message-head time {
+  font-size: 0.8rem;
+}
+.message-audience {
+  color: var(--blue);
+  font-size: 0.8rem;
+}
+.message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.message.undone {
+  opacity: 0.65;
+}
+.message.undone .message-body,
+.message.undone .message-body * {
+  text-decoration: line-through;
+}
+.undone-badge {
+  color: var(--red);
+}
+.roll {
+  display: block;
+}
+.roll-source {
+  margin-right: 0.5rem;
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+.roll-eq {
+  margin: 0 0.35rem;
+}
+.roll-total {
+  color: var(--gold);
+  font-size: 1.25rem;
+}
+s.die {
+  color: var(--dim);
+}
+
+/* Painel do mestre */
+.gm-panel {
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+.gm-panel input,
+.gm-panel select,
+.gm-panel button {
+  padding: 0.25rem 0.5rem;
+}
+.gm-panel label {
+  display: grid;
+  gap: 0.15rem;
+}
+.gm-panel label.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.gm-panel input:not([type='checkbox']),
+.gm-panel select {
+  width: 100%;
+  min-width: 0;
+}
+.gm-panel .row > input {
+  width: auto;
+}
+.gm-panel input[type='color'] {
+  height: 2rem;
+  padding: 0.1rem;
+}
+.gm-panel fieldset {
+  margin: 0;
+  padding: 0.25rem 0.5rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.gm-panel h4 {
+  margin: 0;
+  font-family: var(--font-display);
+}
+.gm-undo {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.gm-section {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+.gm-section h3 {
+  margin: 0;
+  color: var(--gold);
+}
+.grid-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-items: end;
+}
+.token-fields {
+  display: grid;
+  grid-template-columns: 3rem 4.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: end;
+}
+.confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.members li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.members select {
+  width: auto;
+}
+.member-name {
+  flex: 1;
+  min-width: 6rem;
+  overflow-wrap: anywhere;
 }

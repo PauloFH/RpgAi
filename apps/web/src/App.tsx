@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
-import { CampaignPlaceholder } from './pages/CampaignPlaceholder';
 import { HomePage } from './pages/HomePage';
 import { InvitePage } from './pages/InvitePage';
+import { TablePage } from './table/TablePage';
 
 export function App() {
   return (
@@ -16,5 +16,5 @@ export function App() {
 
 function CampaignRoute() {
   const { id = '' } = useParams();
-  return <CampaignPlaceholder id={id} />;
+  return <TablePage key={id} campaignId={id} />;
 }

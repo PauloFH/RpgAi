@@ -9,17 +9,22 @@ import { useTable } from './store';
 import { fitCamera, screenToWorld, zoomAt } from './camera';
 import type { Camera } from './camera';
 
+/** A grid being adjusted but not yet confirmed; drawn in place of the map's real one. */
+export interface GridPreview { mapId: string; gridSize: number; gridOffsetX: number; gridOffsetY: number }
+
 export interface MapCanvasProps {
   mapId: string;
   conn: TableConnection;
   onError(code: string): void;
   selectedTokenId?: string | null;
   onSelectToken?(id: string | null): void;
+  gridPreview?: GridPreview | null;
 }
 
 const WHEEL_FACTOR = 1.1;
 const CLICK_SLOP = 4;
 const GOLD = 0xffd700;
+const LABEL_SCALE = 0.22; // relativo à célula, para continuar legível com a câmera afastada
 
 interface Override { x: number; y: number; base: Token }
 interface DragState {
@@ -35,10 +40,10 @@ interface DragState {
 }
 interface PanState { startSx: number; startSy: number; camX: number; camY: number; moved: boolean }
 
-export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSelectToken }: MapCanvasProps) {
+export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSelectToken, gridPreview = null }: MapCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const propsRef = useRef({ mapId, conn, onError, selectedTokenId, onSelectToken });
-  propsRef.current = { mapId, conn, onError, selectedTokenId, onSelectToken };
+  const propsRef = useRef({ mapId, conn, onError, selectedTokenId, onSelectToken, gridPreview });
+  propsRef.current = { mapId, conn, onError, selectedTokenId, onSelectToken, gridPreview };
   const redrawRef = useRef<(() => void) | null>(null);
   const cancelRef = useRef<(() => void) | null>(null);
 
@@ -122,7 +127,7 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
 
       const label = new Text({
         text: token.name,
-        style: { fontSize: 12, fill: 0xffffff, stroke: { color: 0x000000, width: 3 } },
+        style: { fontSize: Math.max(12, d * LABEL_SCALE), fill: 0xffffff, stroke: { color: 0x000000, width: 3 } },
         resolution: 2,
       });
       label.anchor.set(0.5, 0);
@@ -132,7 +137,11 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
     };
 
     function currentMap(): MapInfo | undefined {
-      return useTable.getState().state?.maps.find(m => m.id === propsRef.current.mapId);
+      const { mapId: id, gridPreview: preview } = propsRef.current;
+      const map = useTable.getState().state?.maps.find(m => m.id === id);
+      if (!map || preview?.mapId !== id) return map;
+      const { gridSize, gridOffsetX, gridOffsetY } = preview;
+      return { ...map, gridSize, gridOffsetX, gridOffsetY };
     }
 
     function applyCamera() {
@@ -149,7 +158,7 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
       if (disposed || !ready) return;
       const st = useTable.getState().state;
       const { mapId: id, selectedTokenId: sel } = propsRef.current;
-      const map = st?.maps.find(m => m.id === id);
+      const map = currentMap();
       clearChildren(bgLayer);
       clearChildren(tokenLayer);
       tokenNodes.clear();
@@ -390,6 +399,10 @@ export function MapCanvas({ mapId, conn, onError, selectedTokenId = null, onSele
     cancelRef.current?.();
     redrawRef.current?.();
   }, [mapId, selectedTokenId]);
+
+  useEffect(() => {
+    redrawRef.current?.();
+  }, [gridPreview]);
 
   return <div ref={hostRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }} />;
 }
