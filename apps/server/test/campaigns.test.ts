@@ -27,6 +27,25 @@ describe('campanhas', () => {
     const other = await login(t.app, 'Intruso');
     expect((await t.app.inject({ method: 'POST', url: `/api/invites/${token}/accept`, headers: { cookie: other.cookie } })).statusCode).toBe(404);
   });
+  it('gerar um novo convite revoga os anteriores da campanha, e só os dela', async () => {
+    const t = await createTestApp();
+    const { campaignId, gm } = await seedCampaign(t);
+    const newInvite = async (id: string) =>
+      (await t.app.inject({ method: 'POST', url: `/api/campaigns/${id}/invites`, headers: { cookie: gm.cookie } })).json().token as string;
+    const { id: otherCampaign } = (
+      await t.app.inject({ method: 'POST', url: '/api/campaigns', headers: { cookie: gm.cookie }, payload: { name: 'Outra', rulesVersion: '2014' } })
+    ).json();
+    const otherToken = await newInvite(otherCampaign);
+    const oldToken = await newInvite(campaignId);
+    const newToken = await newInvite(campaignId);
+    const guest = await login(t.app, 'Convidada');
+    const status = async (token: string) => (await t.app.inject({ url: `/api/invites/${token}`, headers: { cookie: guest.cookie } })).statusCode;
+    expect(await status(oldToken)).toBe(404);
+    expect((await t.app.inject({ method: 'POST', url: `/api/invites/${oldToken}/accept`, headers: { cookie: guest.cookie } })).statusCode).toBe(404);
+    expect(await status(newToken)).toBe(200);
+    expect(await status(otherToken)).toBe(200);
+    await t.close();
+  });
   it('quem não é membro recebe 404 e corpo inválido é 400', async () => {
     const t = await createTestApp();
     const { campaignId } = await seedCampaign(t);

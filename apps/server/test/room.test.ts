@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { Action } from '@rpgai/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { actionLog, uploads } from '../src/db/schema';
+import { actionLog, campaignMembers, invites, uploads } from '../src/db/schema';
 import { CampaignRoom, type Actor } from '../src/table/room';
 import { RoomRegistry } from '../src/table/registry';
 import { seedCampaign } from './helpers';
@@ -256,6 +256,48 @@ describe('fila da sala', () => {
     });
     await expect(room.memberJoined(G.userId)).rejects.toThrow('Query read timeout');
     expect(await room.dispatch(G, { type: 'chat.send', text: 'sigo aqui' })).toMatchObject({ ok: true });
+  });
+});
+
+describe('remover membro e convites', () => {
+  it('revoga todos os links ativos; desfazer não os devolve e o removido não volta', async () => {
+    const { t, room, G, P, campaignId, gmSession, player } = await setup();
+    const { token } = (await t.app.inject({ method: 'POST', url: `/api/campaigns/${campaignId}/invites`, headers: { cookie: gmSession.cookie } })).json() as { token: string };
+    await t.db.insert(invites).values({ token: 'outro-link-ativo', campaignId, createdBy: G.userId });
+    const status = async (invite: string) =>
+      (await t.app.inject({ url: `/api/invites/${invite}`, headers: { cookie: player.cookie } })).statusCode;
+    expect(await status(token)).toBe(200);
+    expect(await status('outro-link-ativo')).toBe(200);
+
+    await room.dispatch(G, { type: 'member.remove', userId: P.userId });
+    expect(await status(token)).toBe(404);
+    expect(await status('outro-link-ativo')).toBe(404);
+    expect((await t.app.inject({ method: 'POST', url: `/api/invites/${token}/accept`, headers: { cookie: player.cookie } })).statusCode).toBe(404);
+    const memberships = await t.db.select().from(campaignMembers).where(eq(campaignMembers.userId, P.userId));
+    expect(memberships).toEqual([]);
+
+    await room.dispatch(G, { type: 'undo' });
+    expect(room.isMember(P.userId)).toBe(true);
+    expect(await status(token)).toBe(404);
+    expect(await status('outro-link-ativo')).toBe(404);
+  });
+  it('se a remoção falha, os links continuam valendo', async () => {
+    const { t, room, G, P, campaignId, gmSession, player } = await setup();
+    const { token } = (await t.app.inject({ method: 'POST', url: `/api/campaigns/${campaignId}/invites`, headers: { cookie: gmSession.cookie } })).json() as { token: string };
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const commit = t.db.transaction.bind(t.db);
+    // Everything the removal writes runs, then the transaction fails: all of it must roll back.
+    vi.spyOn(t.db, 'transaction').mockImplementationOnce((work) =>
+      commit(async (tx) => {
+        await work(tx);
+        throw new Error('falhou antes do commit');
+      }),
+    );
+    expect(await room.dispatch(G, { type: 'member.remove', userId: P.userId })).toMatchObject({ ok: false, code: 'internal' });
+    expect(room.isMember(P.userId)).toBe(true);
+    expect((await t.app.inject({ url: `/api/invites/${token}`, headers: { cookie: player.cookie } })).statusCode).toBe(200);
+    expect(logged).toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 });
 

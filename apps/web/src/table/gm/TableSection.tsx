@@ -6,7 +6,7 @@ import type { TableConnection } from '../socket';
 import { useAction } from '../useAction';
 import { ConfirmButton } from './ConfirmButton';
 
-function InviteLink({ campaignId }: { campaignId: string }) {
+function InviteLink({ campaignId, revoked }: { campaignId: string; revoked: boolean }) {
   const { error, run } = useAction();
   const [url, setUrl] = useState<string | null>(null);
   const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -33,6 +33,8 @@ function InviteLink({ campaignId }: { campaignId: string }) {
       <button type="button" onClick={() => void generate()}>
         {t.gm.table.invite}
       </button>
+      <p className="dim">{t.gm.table.inviteHint}</p>
+      {revoked && !url && <p role="status">{t.gm.table.linksRevoked}</p>}
       {url && (
         <div className="row">
           <input aria-label={t.gm.table.inviteLink} readOnly value={url} onFocus={(e) => e.target.select()} />
@@ -55,8 +57,18 @@ function InviteLink({ campaignId }: { campaignId: string }) {
   );
 }
 
-function MemberRow({ member, lastGm, conn }: { member: Member; lastGm: boolean; conn: TableConnection }) {
+interface MemberRowProps {
+  member: Member;
+  lastGm: boolean;
+  conn: TableConnection;
+  onRemoved(): void;
+}
+
+function MemberRow({ member, lastGm, conn, onRemoved }: MemberRowProps) {
   const { error, run } = useAction();
+  const remove = async () => {
+    if (await run(() => conn.send({ type: 'member.remove', userId: member.userId }))) onRemoved();
+  };
   return (
     <li>
       <span className="member-name">{member.displayName}</span>
@@ -76,7 +88,7 @@ function MemberRow({ member, lastGm, conn }: { member: Member; lastGm: boolean; 
         label={t.gm.table.remove}
         prompt={t.gm.table.removeConfirm}
         disabled={lastGm}
-        onConfirm={() => void run(() => conn.send({ type: 'member.remove', userId: member.userId }))}
+        onConfirm={() => void remove()}
       />
       {error && (
         <p className="error" role="alert">
@@ -89,6 +101,8 @@ function MemberRow({ member, lastGm, conn }: { member: Member; lastGm: boolean; 
 
 export function TableSection({ state, conn }: { state: ClientState; conn: TableConnection }) {
   const { error, run } = useAction();
+  // Each removal remounts InviteLink: the link it was showing no longer works.
+  const [removals, setRemovals] = useState(0);
   const gmCount = state.members.filter((m) => m.role === 'gm').length;
   return (
     <section className="gm-section stack">
@@ -109,11 +123,17 @@ export function TableSection({ state, conn }: { state: ClientState; conn: TableC
           {error}
         </p>
       )}
-      <InviteLink campaignId={state.campaign.id} />
+      <InviteLink key={removals} campaignId={state.campaign.id} revoked={removals > 0} />
       <h4>{t.gm.table.members}</h4>
       <ul className="members">
         {state.members.map((m) => (
-          <MemberRow key={m.userId} member={m} lastGm={m.role === 'gm' && gmCount === 1} conn={conn} />
+          <MemberRow
+            key={m.userId}
+            member={m}
+            lastGm={m.role === 'gm' && gmCount === 1}
+            conn={conn}
+            onRemoved={() => setRemovals((n) => n + 1)}
+          />
         ))}
       </ul>
     </section>

@@ -99,8 +99,10 @@ export const t = {
     table: {
       title: 'Mesa',
       playersCanMove: 'Jogadores podem mover tokens',
-      invite: 'Gerar link de convite',
+      invite: 'Gerar novo link',
+      inviteHint: 'Ao gerar um novo link de convite, o anterior para de funcionar.',
       inviteLink: 'Link de convite',
+      linksRevoked: 'Membro removido: os links de convite foram revogados. Gere um novo para convidar alguém.',
       copy: 'Copiar',
       copied: 'Copiado!',
       copyFailed: 'Não foi possível copiar. Selecione o link e copie à mão.',

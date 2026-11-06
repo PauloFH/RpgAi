@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import type { CampaignInfo, ChatMessage, MapInfo, Member, StateEvent, Token } from '@rpgai/shared';
 import type { Db } from '../db/client';
-import { campaignMembers, campaigns, chatMessages, maps, tokens } from '../db/schema';
+import { campaignMembers, campaigns, chatMessages, invites, maps, tokens } from '../db/schema';
 import type { ServerState } from './room';
 
 export const CHAT_HISTORY = 500; // messages kept in memory per room
@@ -132,6 +132,11 @@ export async function persistChange(tx: Db, campaignId: string, change: Change):
       return;
     case 'member.delete':
       await tx.delete(campaignMembers).where(member(change.userId));
+      // So the person removed cannot walk back in. Undoing brings back the member, not the links.
+      await tx
+        .update(invites)
+        .set({ revoked: true })
+        .where(and(eq(invites.campaignId, campaignId), eq(invites.revoked, false)));
       return;
     case 'member.restore': {
       const { userId, role, currentMapId } = change.member;

@@ -59,7 +59,14 @@ export async function registerCampaignRoutes(app: FastifyInstance, deps: AppDeps
     if (!member) return reply.code(404).send({ error: 'not_found' });
     if (member.role !== 'gm') return reply.code(403).send({ error: 'forbidden' });
     const token = randomBytes(24).toString('base64url');
-    await db.insert(invites).values({ token, campaignId: id, createdBy: req.user!.id });
+    // A campaign has one working link, so a leaked one is revoked by generating another.
+    await db.transaction(async (tx) => {
+      await tx
+        .update(invites)
+        .set({ revoked: true })
+        .where(and(eq(invites.campaignId, id), eq(invites.revoked, false)));
+      await tx.insert(invites).values({ token, campaignId: id, createdBy: req.user!.id });
+    });
     return reply.code(201).send({ token, url: `${config.publicUrl}/convite/${token}` });
   });
 

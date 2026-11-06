@@ -2,6 +2,7 @@
 import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ClientState, Member } from '@rpgai/shared';
+import { api } from '../api';
 import { t } from '../i18n/pt-BR';
 import { GmPanel } from './GmPanel';
 import { ActionError, type TableConnection } from './socket';
@@ -85,6 +86,40 @@ describe('painel do mestre', () => {
     expect(send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText(t.gm.yes));
     expect(send).toHaveBeenCalledWith({ type: 'member.remove', userId: 'u2' });
+  });
+
+  it('remover um membro avisa que os links foram revogados e apaga o link da tela', async () => {
+    const post = vi.spyOn(api, 'post').mockResolvedValue({ token: 'tk', url: 'http://x/convite/tk' });
+    const send = vi.fn(async () => {});
+    renderPanel(state(), send);
+    fireEvent.click(screen.getByText(t.gm.table.invite));
+    await screen.findByDisplayValue('http://x/convite/tk');
+    expect(screen.queryByText(t.gm.table.linksRevoked)).toBeNull();
+
+    fireEvent.click(screen.getAllByText(t.gm.table.remove)[1]!);
+    fireEvent.click(screen.getByText(t.gm.yes));
+    await screen.findByText(t.gm.table.linksRevoked);
+    expect(screen.queryByDisplayValue('http://x/convite/tk')).toBeNull();
+
+    fireEvent.click(screen.getByText(t.gm.table.invite));
+    await screen.findByDisplayValue('http://x/convite/tk');
+    expect(screen.queryByText(t.gm.table.linksRevoked)).toBeNull();
+    post.mockRestore();
+  });
+
+  it('o botão do convite diz que gera um novo link e que o antigo para de funcionar', () => {
+    renderPanel(state());
+    expect(t.gm.table.invite).toBe('Gerar novo link');
+    expect(screen.getByText(t.gm.table.invite)).toBeTruthy();
+    expect(screen.getByText(t.gm.table.inviteHint)).toBeTruthy();
+  });
+
+  it('remoção recusada não fala em links revogados', async () => {
+    renderPanel(state(), vi.fn(async () => { throw new ActionError('forbidden'); }));
+    fireEvent.click(screen.getAllByText(t.gm.table.remove)[1]!);
+    fireEvent.click(screen.getByText(t.gm.yes));
+    await screen.findByRole('alert');
+    expect(screen.queryByText(t.gm.table.linksRevoked)).toBeNull();
   });
 
   it('cancelar a confirmação não remove', () => {
