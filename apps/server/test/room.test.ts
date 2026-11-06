@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { actionLog, uploads } from '../src/db/schema';
 import { CampaignRoom, type Actor } from '../src/table/room';
 import { RoomRegistry } from '../src/table/registry';
-import { createTestApp, seedCampaign } from './helpers';
+import { seedCampaign } from './helpers';
 import { setup } from './room-setup';
 
 describe('CampaignRoom', () => {

@@ -43,7 +43,7 @@ export class CampaignRoom {
   static async load(db: Db, campaignId: string, rng: Rng): Promise<CampaignRoom> {
     const [c] = await db.select().from(campaigns).where(eq(campaigns.id, campaignId));
     if (!c) throw new Error(`campaign ${campaignId} not found`);
-    const [memberRows, mapRows, tokenRows, chatRows, pending] = await Promise.all([
+    const [memberRows, mapRows, tokenRows, chatRows] = await Promise.all([
       db
         .select({
           userId: campaignMembers.userId,
@@ -64,7 +64,6 @@ export class CampaignRoom {
         .where(eq(chatMessages.campaignId, campaignId))
         .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
         .limit(CHAT_HISTORY),
-      pendingUndo(db, campaignId),
     ]);
     const state: ServerState = {
       campaign: {
@@ -113,7 +112,8 @@ export class CampaignRoom {
         createdAt: m.createdAt.toISOString(),
       })),
     };
-    return new CampaignRoom(db, campaignId, rng, state, pending);
+    const gmIds = state.members.filter((m) => m.role === 'gm').map((m) => m.userId);
+    return new CampaignRoom(db, campaignId, rng, state, (await findUndoable(db, campaignId, anyOf(gmIds))) !== null);
   }
 
   /** Full internal state. Callers must treat it as read-only. */
@@ -170,7 +170,7 @@ export class CampaignRoom {
       });
     });
     const events = applyChange(this.current, change);
-    this.undoable = true;
+    this.undoable = (await findUndoable(this.db, this.campaignId, anyOf(this.gmIds()))) !== null;
     return this.ok(events, before);
   }
 
@@ -178,23 +178,22 @@ export class CampaignRoom {
     if (member.role !== 'gm') return fail('forbidden', 'Só o mestre pode desfazer.');
     const before = this.viewers();
     const done = await this.db.transaction(async (tx) => {
-      const [row] = await tx
-        .select({ id: actionLog.id, inverse: actionLog.inverse })
-        .from(actionLog)
-        .where(and(eq(actionLog.campaignId, this.campaignId), eq(actionLog.undone, false)))
-        .orderBy(desc(actionLog.id))
-        .limit(1);
+      const row = await findUndoable(tx, this.campaignId, anyOf([member.userId]));
       if (!row) return null;
       if (!row.inverse) throw new Error(`action_log ${row.id} has no inverse`);
       const inverse = row.inverse as InverseOp;
       await persistChange(tx, this.campaignId, inverse);
       await tx.update(actionLog).set({ undone: true }).where(eq(actionLog.id, row.id));
-      return { inverse, more: await pendingUndo(tx, this.campaignId) };
+      return { inverse, more: (await findUndoable(tx, this.campaignId, anyOf(this.gmIds()))) !== null };
     });
     if (!done) return fail('nothing_to_undo', 'Não há nada para desfazer.');
     const events = applyChange(this.current, done.inverse);
     this.undoable = done.more;
     return this.ok(events, before);
+  }
+
+  private gmIds(): string[] {
+    return this.current.members.filter((m) => m.role === 'gm').map((m) => m.userId);
   }
 
   private ok(events: StateEvent[], before: Map<string, string>): DispatchOk {
@@ -215,11 +214,34 @@ export class CampaignRoom {
   }
 }
 
-async function pendingUndo(db: Db, campaignId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: actionLog.id })
+/** True when a message with these recipients is visible to at least one of `userIds`. */
+const anyOf = (userIds: string[]) => (recipients: string[] | null) =>
+  recipients === null || userIds.some((id) => recipients.includes(id));
+
+/**
+ * The latest action not yet undone that the undoing GM may undo: any action except
+ * a chat.send whose message that GM cannot see (e.g. a whisper between other members).
+ * `canUndo` uses the same rule with "any GM" as the viewer.
+ */
+async function findUndoable(
+  db: Db,
+  campaignId: string,
+  canSee: (recipients: string[] | null) => boolean,
+): Promise<{ id: number; inverse: unknown } | null> {
+  const rows = await db
+    .select({ id: actionLog.id, type: actionLog.type, inverse: actionLog.inverse })
     .from(actionLog)
     .where(and(eq(actionLog.campaignId, campaignId), eq(actionLog.undone, false)))
-    .limit(1);
-  return row !== undefined;
+    .orderBy(desc(actionLog.id));
+  for (const row of rows) {
+    if (row.type !== 'chat.send') return row;
+    const messageId = (row.inverse as { messageId?: string } | null)?.messageId;
+    if (!messageId) throw new Error(`action_log ${row.id} has no message id`);
+    const [message] = await db
+      .select({ recipients: chatMessages.recipients })
+      .from(chatMessages)
+      .where(eq(chatMessages.id, messageId));
+    if (message && canSee(message.recipients)) return row;
+  }
+  return null;
 }
