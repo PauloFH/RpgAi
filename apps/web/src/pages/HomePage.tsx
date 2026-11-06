@@ -18,7 +18,11 @@ interface Me {
   displayName: string;
 }
 
-type Session = { state: 'loading' } | { state: 'out' } | { state: 'in'; me: Me };
+type Session =
+  | { state: 'loading' }
+  | { state: 'out' }
+  | { state: 'error'; message: string }
+  | { state: 'in'; me: Me };
 
 export function HomePage() {
   const [session, setSession] = useState<Session>({ state: 'loading' });
@@ -28,13 +32,27 @@ export function HomePage() {
     api
       .get<Me>('/api/me')
       .then((me) => setSession({ state: 'in', me }))
-      .catch(() => setSession({ state: 'out' }));
+      .catch((e: unknown) =>
+        e instanceof ApiError && e.status === 401
+          ? setSession({ state: 'out' })
+          : setSession({ state: 'error', message: errorText(e instanceof ApiError ? e.code : 'unknown') }),
+      );
   }, []);
 
   if (session.state === 'loading') {
     return (
       <main className="page">
         <p className="dim">{t.app.loading}</p>
+      </main>
+    );
+  }
+
+  if (session.state === 'error') {
+    return (
+      <main className="page">
+        <p className="error" role="alert">
+          {session.message}
+        </p>
       </main>
     );
   }
@@ -105,8 +123,9 @@ function Dashboard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const logout = async () => {
     try {
       await api.post('/auth/logout');
-    } finally {
       onLogout();
+    } catch (err) {
+      setError(errorText(err instanceof ApiError ? err.code : 'unknown'));
     }
   };
 
