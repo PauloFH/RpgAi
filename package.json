@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "test": "vitest run",
+    "start": "node apps/server/dist/index.js",
     "dev": "concurrently -n server,web \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present"

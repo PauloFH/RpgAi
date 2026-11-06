@@ -1,6 +1,6 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, type AppDeps } from '../src/app';
@@ -20,6 +20,17 @@ export function testConfig(): Config {
     discord: null,
     webDist: null,
   };
+}
+
+/** Creates a temp folder holding the given files (path -> contents). */
+export async function makeTempDir(files: Record<string, string | Buffer>): Promise<string> {
+  const dir = mkdtempSync(join(tmpdir(), 'rpgai-dir-'));
+  for (const [name, contents] of Object.entries(files)) {
+    const target = join(dir, name);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, contents);
+  }
+  return dir;
 }
 
 export async function createTestApp(

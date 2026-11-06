@@ -21,6 +21,7 @@
     "@electric-sql/pglite": "^0.5.15",
     "@fastify/cookie": "^11.1.5",
     "@fastify/multipart": "^10.1.7",
+    "@fastify/static": "^10.1.10",
     "@fastify/websocket": "^11.3.7",
     "@rpgai/shared": "*",
     "drizzle-orm": "^0.45.4",
