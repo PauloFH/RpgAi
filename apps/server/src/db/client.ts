@@ -39,6 +39,8 @@ export async function createDb(url: string): Promise<{ db: Db; close(): Promise<
     return { db, close: () => client.close() };
   }
   const pool = new pg.Pool({ connectionString: url, ...POOL_TIMEOUTS });
+  // An idle client that fails (server restart, network) emits this; unheard, it ends the process.
+  pool.on('error', (err) => console.error('[db] idle client failed', err));
   const db = drizzlePg(pool, { schema });
   drivers.set(db, { kind: 'pg', db });
   return { db, close: () => pool.end() };
