@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ClientState, Member } from '@rpgai/shared';
+import type { ClientState, MapInfo, Member, Token } from '@rpgai/shared';
 import { api } from '../api';
 import { t } from '../i18n/pt-BR';
 import { GmPanel } from './GmPanel';
@@ -62,6 +62,64 @@ describe('Ctrl+Z', () => {
     const send = renderPanel(state({ canUndo: false }));
     pressCtrlZ();
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('donos de token', () => {
+  const map: MapInfo = { id: 'm', name: 'M', imageUrl: null, width: 700, height: 700, gridSize: 70, gridOffsetX: 0, gridOffsetY: 0 };
+  const token = (over: Partial<Token> = {}): Token => ({ id: 'tk', mapId: 'm', name: 'Lia', x: 0, y: 0, size: 1, color: '#5b8fd9', imageUrl: null, layer: 'tokens', ownerIds: [], ...over });
+  const panel = (s: ClientState, send: TableConnection['send'], selectedToken: Token | null = null) => (
+    <GmPanel
+      state={s}
+      conn={{ send, close: vi.fn() }}
+      map={map}
+      onViewMap={vi.fn()}
+      selectedToken={selectedToken}
+      onSelectToken={vi.fn()}
+      onGridPreview={vi.fn()}
+    />
+  );
+  const inForm = (label: string) => within(screen.getByRole('form', { name: label }));
+
+  it('criar token não envia dono marcado que foi removido da campanha, e o formulário destrava', async () => {
+    const send = vi.fn(async () => {});
+    const { rerender } = render(panel(state(), send));
+    const form = inForm(t.gm.tokens.createTitle);
+    fireEvent.change(form.getByLabelText(t.gm.tokens.name), { target: { value: 'Goblin' } });
+    fireEvent.click(form.getByLabelText('Lia'));
+    rerender(panel(state({ members: [member('u1', 'Mestre', 'gm')] }), send));
+    fireEvent.click(form.getByText(t.gm.tokens.create));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'token.create', name: 'Goblin', ownerIds: [] }));
+    await waitFor(() => expect(form.getByLabelText<HTMLInputElement>(t.gm.tokens.name).value).toBe(''));
+  });
+
+  it('editar token não envia dono que saiu da campanha ao salvar outra mudança', () => {
+    const send = vi.fn(async () => {});
+    render(panel(state(), send, token({ ownerIds: ['u2', 'ex-membro'] })));
+    const form = inForm(t.gm.tokens.editTitle);
+    expect(form.getByText<HTMLButtonElement>(t.gm.tokens.save).disabled).toBe(true);
+    fireEvent.change(form.getByLabelText(t.gm.tokens.name), { target: { value: 'Novo nome' } });
+    fireEvent.click(form.getByText(t.gm.tokens.save));
+    expect(send).toHaveBeenCalledWith({ type: 'token.update', tokenId: 'tk', name: 'Novo nome' });
+  });
+
+  it('editar token troca os donos sem repetir o ex-membro', () => {
+    const send = vi.fn(async () => {});
+    render(panel(state(), send, token({ ownerIds: ['u2', 'ex-membro'] })));
+    const form = inForm(t.gm.tokens.editTitle);
+    fireEvent.click(form.getByLabelText('Mestre'));
+    fireEvent.click(form.getByText(t.gm.tokens.save));
+    expect(send).toHaveBeenCalledWith({ type: 'token.update', tokenId: 'tk', ownerIds: ['u2', 'u1'] });
+  });
+
+  it('desmarcar e remarcar um dono não conta como mudança: compara conjuntos, não ordem', () => {
+    const send = vi.fn(async () => {});
+    render(panel(state(), send, token({ ownerIds: ['u1', 'u2'] })));
+    const form = inForm(t.gm.tokens.editTitle);
+    fireEvent.click(form.getByLabelText('Mestre'));
+    expect(form.getByText<HTMLButtonElement>(t.gm.tokens.save).disabled).toBe(false);
+    fireEvent.click(form.getByLabelText('Mestre'));
+    expect(form.getByText<HTMLButtonElement>(t.gm.tokens.save).disabled).toBe(true);
   });
 });
 

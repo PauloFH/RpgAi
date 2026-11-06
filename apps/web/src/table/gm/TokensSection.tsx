@@ -16,6 +16,15 @@ interface TokenDraft {
 
 const EMPTY_DRAFT: TokenDraft = { name: '', color: '#5b8fd9', size: '1', layer: 'tokens', ownerIds: [] };
 
+/** A removed member stays in ownerIds and in a ticked draft; the server refuses a list that names them. */
+const currentMembers = (ids: string[], members: Member[]): string[] =>
+  ids.filter((id) => members.some((m) => m.userId === id));
+
+const sameOwners = (a: string[], b: string[]): boolean => {
+  const set = new Set(a);
+  return set.size === new Set(b).size && b.every((id) => set.has(id));
+};
+
 const draftOf = (token: Token): TokenDraft => ({
   name: token.name,
   color: token.color,
@@ -105,7 +114,7 @@ function CreateToken({ state, conn, map }: { state: ClientState; conn: TableConn
         size,
         color: draft.color,
         layer: draft.layer,
-        ownerIds: draft.ownerIds,
+        ownerIds: currentMembers(draft.ownerIds, state.members),
       }),
     );
     if (created) setDraft(EMPTY_DRAFT);
@@ -141,15 +150,13 @@ function EditToken({ state, conn, token, onDeleted }: EditTokenProps) {
 
   const size = Number(draft.size);
   const name = draft.name.trim();
-  // A removed member stays in ownerIds; the server would refuse a list that names them.
-  const currentMembers = (ids: string[]) => ids.filter((id) => state.members.some((m) => m.userId === id));
-  const ownerIds = currentMembers(draft.ownerIds);
+  const ownerIds = currentMembers(draft.ownerIds, state.members);
   const changes = {
     ...(name !== token.name && { name }),
     ...(draft.color !== token.color && { color: draft.color }),
     ...(size !== token.size && { size }),
     ...(draft.layer !== token.layer && { layer: draft.layer }),
-    ...(ownerIds.join() !== currentMembers(token.ownerIds).join() && { ownerIds }),
+    ...(!sameOwners(ownerIds, currentMembers(token.ownerIds, state.members)) && { ownerIds }),
   };
   const dirty = Object.keys(changes).length > 0;
 
