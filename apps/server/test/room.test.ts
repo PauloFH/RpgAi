@@ -1,38 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { Action } from '@rpgai/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { actionLog, uploads } from '../src/db/schema';
 import { CampaignRoom, type Actor } from '../src/table/room';
 import { RoomRegistry } from '../src/table/registry';
 import { createTestApp, seedCampaign } from './helpers';
-
-const opened: Array<{ close(): Promise<void> }> = [];
-afterEach(async () => {
-  await Promise.all(opened.splice(0).map((t) => t.close()));
-});
-
-async function setup(opts: { secondMap?: boolean } = {}) {
-  const t = await createTestApp();
-  opened.push(t);
-  const { campaignId, gm, player } = await seedCampaign(t);
-  const keys = [`${campaignId}/${randomUUID()}.png`];
-  if (opts.secondMap) keys.push(`${campaignId}/${randomUUID()}.png`);
-  await t.db
-    .insert(uploads)
-    .values(keys.map((key) => ({ key, campaignId, contentType: 'image/png', sizeBytes: 1000, width: 700, height: 700 })));
-  const room = await CampaignRoom.load(t.db, campaignId, t.deps.rng);
-  const G: Actor = { userId: gm.userId, via: 'web' };
-  const P: Actor = { userId: player.userId, via: 'web' };
-  const createMap = async (name: string, imageKey: string) => {
-    const r = await room.dispatch(G, { type: 'map.create', name, imageKey });
-    if (!r.ok) throw new Error(`map.create failed: ${r.code}`);
-    return room.state().maps.at(-1)!.id;
-  };
-  const m1 = await createMap('Estalagem', keys[0]!);
-  const m2 = opts.secondMap ? await createMap('Floresta', keys[1]!) : undefined;
-  // m2 only exists with `secondMap: true`; typed as string so tests can use it directly.
-  return { t, room, G, P, m1, m2: m2 as string, campaignId, keys };
-}
+import { setup } from './room-setup';
 
 describe('CampaignRoom', () => {
   it('mestre cria mapa e token; jogador move o próprio token', async () => {

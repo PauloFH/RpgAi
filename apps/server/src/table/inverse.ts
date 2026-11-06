@@ -1,8 +1,10 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import type { CampaignInfo, MapInfo, Member, StateEvent, Token } from '@rpgai/shared';
+import type { CampaignInfo, ChatMessage, MapInfo, Member, StateEvent, Token } from '@rpgai/shared';
 import type { Db } from '../db/client';
 import { campaignMembers, campaigns, chatMessages, maps, tokens } from '../db/schema';
 import type { ServerState } from './room';
+
+export const CHAT_HISTORY = 500; // messages kept in memory per room
 
 export type MapRecord = MapInfo & { imageKey: string | null };
 export type TokenRecord = Token & { imageKey: string | null };
@@ -22,9 +24,9 @@ export type InverseOp =
 /**
  * One primitive change to the table. Every action resolves to exactly one Change,
  * and undo applies the stored InverseOp as a Change, so both go through the same
- * persist/apply code. `member.delete` only exists forward (its inverse is member.restore).
+ * persist/apply code. `member.delete` and `chat.add` only exist forward (their inverses are member.restore and chat.markUndone).
  */
-export type Change = InverseOp | { op: 'member.delete'; userId: string };
+export type Change = InverseOp | { op: 'member.delete'; userId: string } | { op: 'chat.add'; message: ChatMessage };
 
 const MAP_COLUMNS = ['name', 'gridSize', 'gridOffsetX', 'gridOffsetY'] as const;
 const TOKEN_COLUMNS = ['mapId', 'name', 'x', 'y', 'size', 'color', 'layer', 'ownerIds'] as const;
@@ -95,6 +97,8 @@ export function invert(state: ServerState, change: Change): InverseOp {
     }
     case 'token.restore':
       return { op: 'token.delete', tokenId: change.token.id };
+    case 'chat.add':
+      return { op: 'chat.markUndone', messageId: change.message.id };
     case 'member.restore':
     case 'chat.markUndone':
       throw new Error(`${change.op} is only used as an inverse`);
@@ -178,6 +182,11 @@ export async function persistChange(tx: Db, campaignId: string, change: Change):
     case 'token.restore':
       await tx.insert(tokens).values(tokenRow(campaignId, change.token));
       return;
+    case 'chat.add': {
+      const m = change.message;
+      await tx.insert(chatMessages).values({ ...m, campaignId, createdAt: new Date(m.createdAt) });
+      return;
+    }
     case 'chat.markUndone':
       await tx.update(chatMessages).set({ undone: true }).where(eq(chatMessages.id, change.messageId));
       return;
@@ -257,6 +266,11 @@ export function applyChange(state: ServerState, change: Change): StateEvent[] {
       const token = { ...change.token, ownerIds: [...change.token.ownerIds] };
       state.tokens.push(token);
       return [{ type: 'token.upserted', token: publicToken(token) }];
+    }
+    case 'chat.add': {
+      state.chat.push({ ...change.message });
+      if (state.chat.length > CHAT_HISTORY) state.chat.splice(0, state.chat.length - CHAT_HISTORY);
+      return [{ type: 'chat.added', message: { ...change.message } }];
     }
     case 'chat.markUndone': {
       const message = state.chat.find((m) => m.id === change.messageId);

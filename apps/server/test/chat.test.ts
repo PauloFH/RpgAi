@@ -1,0 +1,56 @@
+import { describe, expect, it } from 'vitest';
+import { CampaignRoom } from '../src/table/room';
+import { setup } from './room-setup';
+
+describe('chat', () => {
+  it('/r rola no servidor e todos veem', async () => {
+    const { room, P } = await setup({ rng: (f) => (f === 20 ? 17 : f) });
+    await room.dispatch(P, { type: 'chat.send', text: '/r 1d20+5 Ataque' });
+    expect(room.state().chat.at(-1)).toMatchObject({ kind: 'roll', label: 'Ataque', recipients: null, rolls: [{ total: 22 }] });
+  });
+  it('/gr do jogador vai só para ele e para os mestres', async () => {
+    const { room, G, P } = await setup();
+    await room.dispatch(P, { type: 'chat.send', text: '/gr 1d20' });
+    const last = room.state().chat.at(-1)!;
+    expect(last.secret).toBe(true);
+    expect(new Set(last.recipients)).toEqual(new Set([P.userId, G.userId]));
+  });
+  it('/gr do mestre não repete o mestre', async () => {
+    const { room, G } = await setup();
+    await room.dispatch(G, { type: 'chat.send', text: '/gr 1d20' });
+    expect(room.state().chat.at(-1)!.recipients).toEqual([G.userId]);
+  });
+  it('/w acha o membro pelo nome e falha para nome desconhecido', async () => {
+    const { room, G, P } = await setup();
+    await room.dispatch(G, { type: 'chat.send', text: '/w lia cuidado' });
+    expect(room.state().chat.at(-1)).toMatchObject({ kind: 'whisper', text: 'cuidado', recipients: [G.userId, P.userId] });
+    expect(await room.dispatch(G, { type: 'chat.send', text: '/w Ninguém oi' })).toMatchObject({ code: 'invalid' });
+  });
+  it('rolagens embutidas e dados inválidos', async () => {
+    const { room, P } = await setup();
+    await room.dispatch(P, { type: 'chat.send', text: 'ataco [[1d20]] e causo [[2d6]]' });
+    expect(room.state().chat.at(-1)!.rolls).toHaveLength(2);
+    expect(await room.dispatch(P, { type: 'chat.send', text: '/r 1d0' })).toMatchObject({ code: 'dice' });
+    expect(await room.dispatch(P, { type: 'chat.send', text: '/r 1000000d6' })).toMatchObject({ code: 'dice' });
+  });
+  it('comando desconhecido é inválido e não grava nada', async () => {
+    const { room, P } = await setup();
+    const before = room.state().chat.length;
+    expect(await room.dispatch(P, { type: 'chat.send', text: '/xyz' })).toMatchObject({ ok: false, code: 'invalid' });
+    expect(room.state().chat).toHaveLength(before);
+  });
+  it('desfazer uma rolagem a deixa marcada no chat', async () => {
+    const { room, G } = await setup();
+    await room.dispatch(G, { type: 'chat.send', text: '/r 1d20' });
+    const r = await room.dispatch(G, { type: 'undo' });
+    expect(room.state().chat.at(-1)!.undone).toBe(true);
+    expect(r.ok && r.events.some((e) => e.type === 'chat.updated')).toBe(true);
+  });
+  it('envio emite chat.added e a mensagem sobrevive a recarregar a sala', async () => {
+    const { room, P, t, campaignId } = await setup();
+    const r = await room.dispatch(P, { type: 'chat.send', text: 'olá' });
+    expect(r.ok && r.events.map((e) => e.type)).toEqual(['chat.added', 'undo.available']);
+    const fresh = await CampaignRoom.load(t.db, campaignId, t.deps.rng);
+    expect(fresh.state().chat.at(-1)).toMatchObject({ text: 'olá', kind: 'text', authorId: P.userId });
+  });
+});

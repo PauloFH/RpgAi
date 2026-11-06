@@ -15,10 +15,8 @@ import {
 } from '@rpgai/shared';
 import type { Db } from '../db/client';
 import { actionLog, campaignMembers, campaigns, chatMessages, maps, tokens, users } from '../db/schema';
-import { applyChange, imageUrl, invert, persistChange, type Change, type InverseOp, type MapRecord, type TokenRecord } from './inverse';
+import { CHAT_HISTORY, applyChange, imageUrl, invert, persistChange, type Change, type InverseOp, type MapRecord, type TokenRecord } from './inverse';
 import { fail, planAction } from './plan';
-
-const CHAT_HISTORY = 500;
 
 export interface Actor { userId: string; via: 'web' | 'api' | 'mcp' }
 export interface ServerState {
@@ -37,7 +35,7 @@ export class CampaignRoom {
   private constructor(
     private readonly db: Db,
     readonly campaignId: string,
-    private readonly rng: Rng, // used by chat rolls (Task 9)
+    private readonly rng: Rng,
     private readonly current: ServerState,
     private undoable: boolean,
   ) {}
@@ -147,7 +145,7 @@ export class CampaignRoom {
     if (!member) return fail('forbidden', 'Você não é membro desta campanha.');
     try {
       if (action.type === 'undo') return await this.undo(member);
-      const plan = await planAction(this.db, this.current, member, action);
+      const plan = await planAction(this.db, this.current, member, action, this.rng);
       if (!plan.ok) return plan;
       return await this.apply(actor, action, plan.change);
     } catch (err) {

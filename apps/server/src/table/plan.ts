@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { isInsideGrid, type Action, type ErrorCode, type Member } from '@rpgai/shared';
+import { ChatError, DiceError, isInsideGrid, type Action, type ErrorCode, type Member, type Rng } from '@rpgai/shared';
 import type { Db } from '../db/client';
 import { uploads } from '../db/schema';
+import { buildMessage } from './chat';
 import { imageUrl, type Change } from './inverse';
 import type { DispatchErr, ServerState } from './room';
 
@@ -39,8 +40,9 @@ export async function planAction(
   state: ServerState,
   actor: Member,
   action: Exclude<Action, { type: 'undo' }>,
+  rng: Rng,
 ): Promise<Plan> {
-  if (action.type === 'chat.send') return fail('invalid', 'O chat ainda não está disponível.');
+  if (action.type === 'chat.send') return planChat(state, actor, action.text, rng);
   if (actor.role !== 'gm' && action.type !== 'token.update') return FORBIDDEN;
 
   const findMap = (id: string) => state.maps.find((m) => m.id === id);
@@ -165,5 +167,20 @@ export async function planAction(
     }
     case 'token.delete':
       return findToken(action.tokenId) ? plan({ op: 'token.delete', tokenId: action.tokenId }) : NOT_FOUND.token;
+  }
+}
+
+function planChat(state: ServerState, actor: Member, text: string, rng: Rng): Plan {
+  try {
+    const message = buildMessage({ text, authorId: actor.userId, members: state.members, rng });
+    return plan({
+      op: 'chat.add',
+      message: { ...message, id: randomUUID(), createdAt: new Date().toISOString(), undone: false },
+    });
+  } catch (err) {
+    if (err instanceof DiceError) return fail('dice', err.message);
+    if (err instanceof ChatError) return fail('invalid', err.message);
+    if (err instanceof Error && err.message === 'unknown_member') return fail('invalid', 'Unknown or ambiguous whisper target.');
+    throw err;
   }
 }
