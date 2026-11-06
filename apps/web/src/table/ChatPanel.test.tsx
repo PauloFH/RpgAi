@@ -60,6 +60,38 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(input.value).toBe(''));
   });
 
+  it('Enter duplo com a resposta pendente envia uma vez só', async () => {
+    let answer!: () => void;
+    const send = vi.fn(() => new Promise<void>((resolve) => (answer = resolve)));
+    const { container } = render(<ChatPanel state={state([])} conn={conn(send)} />);
+    const input = screen.getByLabelText<HTMLInputElement>(t.chat.message);
+    const form = container.querySelector('form')!;
+    fireEvent.change(input, { target: { value: '/r 1d20' } });
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    expect(send).toHaveBeenCalledTimes(1);
+    answer();
+    await waitFor(() => expect(input.value).toBe(''));
+
+    fireEvent.change(input, { target: { value: 'de novo' } });
+    fireEvent.submit(form);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith({ type: 'chat.send', text: 'de novo' });
+    answer();
+    await waitFor(() => expect(input.value).toBe(''));
+  });
+
+  it('depois de uma falha dá para tentar de novo', async () => {
+    const send = vi.fn(async () => { throw new ActionError('internal'); });
+    const { container } = render(<ChatPanel state={state([])} conn={conn(send)} />);
+    fireEvent.change(screen.getByLabelText(t.chat.message), { target: { value: 'oi' } });
+    fireEvent.submit(container.querySelector('form')!);
+    await screen.findByRole('alert');
+    fireEvent.submit(container.querySelector('form')!);
+    expect(send).toHaveBeenCalledTimes(2);
+    await screen.findByRole('alert');
+  });
+
   it('mostra o erro do servidor e mantém o texto', async () => {
     const send = vi.fn(async () => { throw new ActionError('dice'); });
     render(<ChatPanel state={state([])} conn={conn(send)} />);

@@ -47,6 +47,8 @@ export function ChatPanel({ state, conn }: { state: ClientState; conn: TableConn
   const { error, run } = useAction();
   const listRef = useRef<HTMLOListElement>(null);
   const stick = useRef(true);
+  // A ref, not state: a second Enter can arrive before React renders the first one.
+  const sending = useRef(false);
 
   useEffect(() => {
     const list = listRef.current;
@@ -61,8 +63,10 @@ export function ChatPanel({ state, conn }: { state: ClientState; conn: TableConn
   const send = async (e: FormEvent) => {
     e.preventDefault();
     const value = text;
-    if (value.trim() === '') return;
+    if (value.trim() === '' || sending.current) return;
+    sending.current = true;
     const sent = await run(() => conn.send({ type: 'chat.send', text: value }));
+    sending.current = false;
     if (sent) setText((current) => (current === value ? '' : current));
   };
 
