@@ -184,7 +184,13 @@ export class CampaignRoom {
       });
     });
     const events = applyChange(this.current, change);
-    this.undoable = (await findUndoable(this.db, this.campaignId, anyOf(this.gmIds()))) !== null;
+    // Committed and in memory: a failed read must not report the action as failed and
+    // leave it unpublished. The previous value stands until the next successful read.
+    try {
+      this.undoable = (await findUndoable(this.db, this.campaignId, anyOf(this.gmIds()))) !== null;
+    } catch (err) {
+      console.error(`[room ${this.campaignId}] could not refresh canUndo`, err);
+    }
     return this.ok(events, before);
   }
 

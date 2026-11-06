@@ -216,6 +216,38 @@ describe('fila da sala', () => {
     expect(room.state().chat.map((m) => m.text)).toEqual(['depois']);
     expect(logged).toHaveBeenCalled();
   });
+  it('ação já gravada não falha se a leitura do desfazer falhar depois', async () => {
+    const { t, room, G } = await setup();
+    expect(await room.dispatch(G, { type: 'undo' })).toMatchObject({ ok: true });
+    expect(room.canUndo()).toBe(false);
+
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const commit = t.db.transaction.bind(t.db);
+    vi.spyOn(t.db, 'transaction').mockImplementationOnce(async (work) => {
+      const committed = await commit(work);
+      // Only the read that follows the commit fails.
+      vi.spyOn(t.db, 'select').mockImplementationOnce(() => {
+        throw new Error('Query read timeout');
+      });
+      return committed;
+    });
+    const result = await room.dispatch(G, { type: 'chat.send', text: 'gravada' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      events: [
+        { type: 'chat.added', message: { text: 'gravada' } },
+        { type: 'undo.available', canUndo: false },
+      ],
+    });
+    expect(room.state().chat.map((m) => m.text)).toEqual(['gravada']);
+    expect(room.canUndo()).toBe(false); // previous value kept
+    expect(logged).toHaveBeenCalled();
+
+    expect(await room.dispatch(G, { type: 'chat.send', text: 'depois' })).toMatchObject({ ok: true });
+    expect(room.state().chat.map((m) => m.text)).toEqual(['gravada', 'depois']);
+    expect(room.canUndo()).toBe(true); // the next successful read corrects it
+  });
   it('memberJoined que falha não prende a fila', async () => {
     const { t, room, G } = await setup();
     vi.spyOn(t.db, 'select').mockImplementationOnce(() => {
