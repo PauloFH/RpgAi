@@ -38,6 +38,11 @@ async function takeSeat(db: Db, hub: TableHub, socket: WebSocket, req: FastifyRe
     // so this seat neither misses an event nor gets one its snapshot already contains.
     return await room.enqueue(async () => {
       if (!room.isMember(user.id)) {
+        // Either they were removed just now, or the room missed their joining (a failed
+        // memberJoined): the database decides, so a failure then does not lock them out.
+        hub.publish(room, await room.readMember(user.id), []);
+      }
+      if (!room.isMember(user.id)) {
         socket.close(CLOSE_FORBIDDEN, 'forbidden');
         return null;
       }

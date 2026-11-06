@@ -450,6 +450,30 @@ describe('entrada por convite', () => {
     expect(await gm.next()).toMatchObject({ event: { type: 'member.upserted', member: { userId: newcomer.userId } } });
     expect(await t.db.select().from(actionLog).where(eq(actionLog.campaignId, campaignId))).toHaveLength(before.length);
   });
+  it('membro que entrou mas não chegou à sala carregada consegue conectar, e os outros ficam sabendo', async () => {
+    const { t, url, gm, gmSession, campaignId } = await wsSetup();
+    await gm.next(isSnapshot);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const joined = vi.spyOn(CampaignRoom.prototype, 'memberJoined').mockRejectedValueOnce(new Error('Query read timeout'));
+    const newcomer = await login(t.app, 'Novata');
+    const token = await invite(t.app, gmSession.cookie, campaignId);
+    expect((await accept(t.app, newcomer.cookie, token)).statusCode).toBe(200);
+    expect(joined).toHaveBeenCalled();
+    expect(logged).toHaveBeenCalled();
+
+    const client = await connect(url, newcomer.cookie, campaignId);
+    const snap = await client.next();
+    expect(snap).toMatchObject({ t: 'snapshot', state: { me: { userId: newcomer.userId, role: 'player' } } });
+    expect(await gm.next((m) => m.t === 'event')).toMatchObject({ event: { type: 'member.upserted', member: { userId: newcomer.userId } } });
+    client.send({ t: 'cmd', id: 'c', action: { type: 'chat.send', text: 'cheguei' } });
+    expect(await client.next((m) => m.t === 'ack')).toEqual({ t: 'ack', id: 'c' });
+  });
+  it('quem saiu do banco e da sala continua recusado', async () => {
+    const { url, gm, pl, player, campaignId } = await wsSetup();
+    gm.send({ t: 'cmd', id: 'r', action: { type: 'member.remove', userId: player.userId } });
+    expect(await pl.closed()).toBe(4403);
+    expect(await closeCode(url, player.cookie, campaignId)).toBe(4403);
+  });
   it('não carrega a sala quando ela ainda não está na memória', async () => {
     const t = await createTestApp();
     try {

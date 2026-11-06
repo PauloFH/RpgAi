@@ -140,15 +140,18 @@ export class CampaignRoom {
    * Not an action: it has no action_log row and cannot be undone.
    */
   memberJoined(userId: string): Promise<StateEvent[]> {
-    return this.enqueue(async () => {
-      const [member] = await selectMembers(
-        this.db,
-        and(eq(campaignMembers.campaignId, this.campaignId), eq(campaignMembers.userId, userId)),
-      );
-      if (!member) return [];
-      this.current.members = [...this.current.members.filter((m) => m.userId !== userId), member];
-      return [{ type: 'member.upserted', member: { ...member } }];
-    });
+    return this.enqueue(() => this.readMember(userId));
+  }
+
+  /** What memberJoined does, for a task already running in the queue: waiting on it would never end. */
+  async readMember(userId: string): Promise<StateEvent[]> {
+    const [member] = await selectMembers(
+      this.db,
+      and(eq(campaignMembers.campaignId, this.campaignId), eq(campaignMembers.userId, userId)),
+    );
+    if (!member) return [];
+    this.current.members = [...this.current.members.filter((m) => m.userId !== userId), member];
+    return [{ type: 'member.upserted', member: { ...member } }];
   }
 
   private async run(actor: Actor, input: Action): Promise<DispatchOk | DispatchErr> {
