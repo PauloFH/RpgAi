@@ -40,8 +40,9 @@ describe('conexão em tempo real', () => {
     const { gm, pl, m1 } = await wsSetup();
     gm.send({ t: 'cmd', id: 'a', action: { type: 'token.create', mapId: m1, name: 'Emboscada', x: 2, y: 2, layer: 'gm' } });
     gm.send({ t: 'cmd', id: 'b', action: { type: 'token.create', mapId: m1, name: 'Visível', x: 3, y: 3 } });
-    const ev = await pl.next(m => m.t === 'event' && m.event.type === 'token.upserted');
-    expect(ev.event.token.name).toBe('Visível');
+    // The hidden token, created first, produced no message at all.
+    const ev = await pl.next(m => m.t === 'event');
+    expect(ev.event).toMatchObject({ type: 'token.upserted', token: { name: 'Visível' } });
     gm.send({ t: 'cmd', id: 'c', action: { type: 'token.update', tokenId: ev.event.token.id, layer: 'gm' } });
     expect(await pl.next(m => m.t === 'event')).toEqual({ t: 'event', event: { type: 'token.removed', tokenId: ev.event.token.id } });
   });
@@ -82,6 +83,146 @@ describe('conexão em tempo real', () => {
     const { gm, pl, player } = await wsSetup();
     gm.send({ t: 'cmd', id: 'r', action: { type: 'member.remove', userId: player.userId } });
     expect(await pl.closed()).toBe(4403);
+  });
+});
+
+describe('o que o jogador não pode saber', () => {
+  type Client = Awaited<ReturnType<typeof connect>>;
+  const cmd = (id: string, action: object) => ({ t: 'cmd', id, action });
+  const isChat = (m: { t: string; event?: { type: string } }) => m.t === 'event' && m.event?.type === 'chat.added';
+
+  /** All `client` receives before a public message `from` sends now, minus acks and undo state. */
+  const untilMarker = async (client: Client, from: Client, marker: string) => {
+    from.send(cmd(marker, { type: 'chat.send', text: marker }));
+    const seen: unknown[] = [];
+    for (;;) {
+      const m = await client.next();
+      if (isChat(m) && m.event.message.text === marker) return seen;
+      if (m.t !== 'ack' && m.event?.type !== 'undo.available') seen.push(m);
+    }
+  };
+  const addThird = async (s: Awaited<ReturnType<typeof wsSetup>>) => {
+    const third = await login(s.t.app, 'Davi');
+    const invite = await s.t.app.inject({ method: 'POST', url: `/api/campaigns/${s.campaignId}/invites`, headers: { cookie: s.gmSession.cookie } });
+    const { token } = invite.json() as { token: string };
+    await s.t.app.inject({ method: 'POST', url: `/api/invites/${token}/accept`, headers: { cookie: third.cookie } });
+    return { third, client: await connect(s.url, third.cookie, s.campaignId) };
+  };
+
+  it('token escondido não manda nada ao ser criado, movido, excluído ou trazido de volta', async () => {
+    const { gm, pl, m1 } = await wsSetup();
+    await pl.next(isSnapshot);
+    gm.send(cmd('c', { type: 'token.create', mapId: m1, name: 'Emboscada', x: 1, y: 1, layer: 'gm' }));
+    const created = await gm.next((m) => m.t === 'event' && m.event.type === 'token.upserted');
+    const tokenId = created.event.token.id;
+    gm.send(cmd('m', { type: 'token.update', tokenId, x: 2, y: 2 }));
+    gm.send(cmd('d', { type: 'token.delete', tokenId }));
+    gm.send(cmd('u', { type: 'undo' }));
+    expect(await untilMarker(pl, gm, 'fim')).toEqual([]);
+  });
+  it('token visível que vai para a camada do mestre vira token.removed uma única vez', async () => {
+    const { gm, pl, m1 } = await wsSetup();
+    await pl.next(isSnapshot);
+    gm.send(cmd('c', { type: 'token.create', mapId: m1, name: 'Goblin', x: 1, y: 1 }));
+    const { event } = await pl.next((m) => m.t === 'event' && m.event.type === 'token.upserted');
+    gm.send(cmd('h', { type: 'token.update', tokenId: event.token.id, layer: 'gm' }));
+    gm.send(cmd('m', { type: 'token.update', tokenId: event.token.id, x: 3, y: 3 }));
+    gm.send(cmd('d', { type: 'token.delete', tokenId: event.token.id }));
+    expect(await untilMarker(pl, gm, 'fim')).toEqual([{ t: 'event', event: { type: 'token.removed', tokenId: event.token.id } }]);
+  });
+  it('quem conecta depois só é avisado sobre o que veio no snapshot dele', async () => {
+    const { gm, m1, reconnectPlayer, pl } = await wsSetup();
+    gm.send(cmd('c', { type: 'token.create', mapId: m1, name: 'Goblin', x: 1, y: 1 }));
+    const { event } = await pl.next((m) => m.t === 'event' && m.event.type === 'token.upserted');
+    gm.send(cmd('s', { type: 'token.create', mapId: m1, name: 'Oculto', x: 1, y: 1, layer: 'gm' }));
+    const hidden = await gm.next((m) => m.t === 'event' && m.event.type === 'token.upserted' && m.event.token.name === 'Oculto');
+    const tab = await reconnectPlayer();
+    await tab.next(isSnapshot);
+    gm.send(cmd('d1', { type: 'token.delete', tokenId: hidden.event.token.id }));
+    gm.send(cmd('d2', { type: 'token.delete', tokenId: event.token.id }));
+    expect(await untilMarker(tab, gm, 'fim')).toEqual([{ t: 'event', event: { type: 'token.removed', tokenId: event.token.id } }]);
+  });
+  it('mestre rebaixado pelo socket deixa de receber o que é escondido', async () => {
+    const { gm, pl, m1, m2, gmSession, player } = await wsSetup({ secondMap: true });
+    await Promise.all([gm.next(isSnapshot), pl.next(isSnapshot)]);
+    gm.send(cmd('s', { type: 'token.create', mapId: m1, name: 'Oculto', x: 1, y: 1, layer: 'gm' }));
+    await gm.next((m) => m.t === 'ack' && m.id === 's');
+    gm.send(cmd('p', { type: 'member.setRole', userId: player.userId, role: 'gm' }));
+    await pl.next((m) => m.t === 'snapshot' && m.state.me.role === 'gm');
+    pl.send(cmd('d', { type: 'member.setRole', userId: gmSession.userId, role: 'player' }));
+    const snap = await gm.next(isSnapshot);
+    expect(snap.state.me).toEqual({ userId: gmSession.userId, role: 'player' });
+    expect(snap.state.canUndo).toBe(false);
+    expect(snap.state.tokens).toEqual([]);
+    expect(snap.state.maps.map((x: MapInfo) => x.id)).toEqual([m1]);
+    pl.send(cmd('h', { type: 'token.create', mapId: m1, name: 'Outro oculto', x: 2, y: 2, layer: 'gm' }));
+    pl.send(cmd('o', { type: 'token.create', mapId: m2, name: 'Em outro mapa', x: 2, y: 2 }));
+    expect(await untilMarker(gm, pl, 'fim')).toEqual([]);
+    gm.send(cmd('u', { type: 'undo' }));
+    expect(await gm.next((m) => m.t === 'error')).toMatchObject({ id: 'u', code: 'forbidden' });
+  });
+  it('depois de trocar de mapa, nada do mapa antigo chega', async () => {
+    const { gm, pl, m1, m2, player } = await wsSetup({ secondMap: true });
+    await pl.next(isSnapshot);
+    gm.send(cmd('old', { type: 'token.create', mapId: m1, name: 'Antigo', x: 1, y: 1 }));
+    const { event } = await pl.next((m) => m.t === 'event' && m.event.type === 'token.upserted');
+    gm.send(cmd('move', { type: 'member.setMap', userId: player.userId, mapId: m2 }));
+    const snap = await pl.next(isSnapshot);
+    expect(snap.state.tokens).toEqual([]);
+    gm.send(cmd('a', { type: 'token.update', tokenId: event.token.id, x: 5, y: 5 }));
+    gm.send(cmd('b', { type: 'token.create', mapId: m1, name: 'Novo no antigo', x: 2, y: 2 }));
+    gm.send(cmd('c', { type: 'token.delete', tokenId: event.token.id }));
+    gm.send(cmd('r', { type: 'map.update', mapId: m1, name: 'Renomeado' }));
+    expect(await untilMarker(pl, gm, 'meio')).toEqual([]);
+    gm.send(cmd('d', { type: 'token.create', mapId: m2, name: 'Aqui', x: 1, y: 1 }));
+    expect(await untilMarker(pl, gm, 'fim')).toEqual([{ t: 'event', event: { type: 'token.upserted', token: expect.objectContaining({ name: 'Aqui' }) } }]);
+  });
+  it('sussurro e rolagem secreta só chegam a quem pode ver', async () => {
+    const s = await wsSetup();
+    const { gm, pl, player, gmSession } = s;
+    const { client: davi, third } = await addThird(s);
+    await Promise.all([gm.next(isSnapshot), pl.next(isSnapshot), davi.next(isSnapshot)]);
+
+    gm.send(cmd('w', { type: 'chat.send', text: '/w Lia segredo' }));
+    await gm.next((m) => m.t === 'ack' && m.id === 'w');
+    pl.send(cmd('g', { type: 'chat.send', text: '/gr 1d20' }));
+    pl.send(cmd('fim', { type: 'chat.send', text: 'fim' }));
+    const chatBeforeEnd = async (client: Client) => {
+      const messages = [];
+      for (;;) {
+        const { event } = await client.next(isChat);
+        if (event.message.text === 'fim') return messages;
+        messages.push(event.message);
+      }
+    };
+    const [toGm, toPlayer, toThird] = await Promise.all([chatBeforeEnd(gm), chatBeforeEnd(pl), chatBeforeEnd(davi)]);
+    const expected = [
+      { kind: 'whisper', text: 'segredo', recipients: [gmSession.userId, player.userId] },
+      { kind: 'roll', secret: true },
+    ];
+    expect(toGm).toMatchObject(expected);
+    expect(toPlayer).toMatchObject(expected);
+    expect(toThird).toEqual([]);
+
+    const snap = await (await connect(s.url, third.cookie, s.campaignId)).next(isSnapshot);
+    expect(snap.state.chat.map((m: { text: string }) => m.text)).toEqual(['fim']);
+  });
+  it('membro que muda de mapa não revela o mapa aos outros jogadores', async () => {
+    const s = await wsSetup({ secondMap: true });
+    const { gm, pl, m2, player } = s;
+    const { client: davi, third } = await addThird(s);
+    await Promise.all([gm.next(isSnapshot), pl.next(isSnapshot), davi.next(isSnapshot)]);
+    gm.send(cmd('m', { type: 'member.setMap', userId: player.userId, mapId: m2 }));
+    const toGm = await gm.next((m) => m.t === 'event' && m.event.type === 'member.upserted' && m.event.member.userId === player.userId);
+    expect(toGm.event.member.currentMapId).toBe(m2);
+    const toOther = await davi.next((m) => m.t === 'event' && m.event.type === 'member.upserted');
+    expect(toOther.event.member).toMatchObject({ userId: player.userId, currentMapId: null });
+    const own = await pl.next(isSnapshot);
+    const mapOfPlayer = (state: { members: Array<{ userId: string; currentMapId: string | null }> }) =>
+      state.members.find((m) => m.userId === player.userId)!.currentMapId;
+    expect(mapOfPlayer(own.state)).toBe(m2);
+    const later = await (await connect(s.url, third.cookie, s.campaignId)).next(isSnapshot);
+    expect(mapOfPlayer(later.state)).toBeNull();
   });
 });
 
@@ -219,7 +360,7 @@ describe('o que cada conexão recebe', () => {
     const { gm, pl, player, m1 } = await wsSetup();
     await pl.next(isSnapshot);
     gm.send({ t: 'cmd', id: 'h', action: { type: 'token.create', mapId: m1, name: 'Escondido', x: 1, y: 1, layer: 'gm' } });
-    await pl.next((m) => m.t === 'event' && m.event.type === 'token.removed');
+    await gm.next((m) => m.t === 'ack' && m.id === 'h');
     gm.send({ t: 'cmd', id: 'p', action: { type: 'member.setRole', userId: player.userId, role: 'gm' } });
     const snap = await pl.next();
     expect(snap).toMatchObject({ t: 'snapshot', state: { me: { role: 'gm' }, canUndo: true } });

@@ -23,28 +23,45 @@ function serverState(o: { maps?: string[]; tokens?: Token[]; chat?: ChatMessage[
   };
 }
 
+const nothing: ReadonlySet<string> = new Set();
+
 describe('projectEvent', () => {
-  it('token que vai para a camada do mestre vira remoção para o jogador', () => {
-    expect(projectEvent({ type: 'token.upserted', token: tok({ id: 't1', layer: 'gm' }) }, player)).toEqual({ type: 'token.removed', tokenId: 't1' });
+  it('token conhecido que fica invisível vira remoção', () => {
+    expect(projectEvent({ type: 'token.upserted', token: tok({ id: 't1', layer: 'gm' }) }, player, new Set(['t1']))).toEqual({ type: 'token.removed', tokenId: 't1' });
+  });
+  it('token invisível que o jogador nunca viu não gera nada', () => {
+    expect(projectEvent({ type: 'token.upserted', token: tok({ id: 't1', layer: 'gm' }) }, player, nothing)).toBeNull();
+    expect(projectEvent({ type: 'token.upserted', token: tok({ id: 't1', mapId: 'm2' }) }, player, nothing)).toBeNull();
+  });
+  it('token.removed só chega a quem conhecia o token', () => {
+    const removed = { type: 'token.removed', tokenId: 'x' } as const;
+    expect(projectEvent(removed, player, nothing)).toBeNull();
+    expect(projectEvent(removed, player, new Set(['x']))).toEqual(removed);
   });
   it('mapa de outro lugar e undo.available não chegam ao jogador', () => {
-    expect(projectEvent({ type: 'map.upserted', map: map({ id: 'm2' }) }, player)).toBeNull();
-    expect(projectEvent({ type: 'map.removed', mapId: 'm2' }, player)).toBeNull();
-    expect(projectEvent({ type: 'undo.available', canUndo: true }, player)).toBeNull();
+    expect(projectEvent({ type: 'map.upserted', map: map({ id: 'm2' }) }, player, nothing)).toBeNull();
+    expect(projectEvent({ type: 'map.removed', mapId: 'm2' }, player, nothing)).toBeNull();
+    expect(projectEvent({ type: 'undo.available', canUndo: true }, player, nothing)).toBeNull();
   });
   it('mestre recebe tudo; eventos neutros passam', () => {
     const e = { type: 'undo.available', canUndo: true } as const;
-    expect(projectEvent(e, gm)).toEqual(e);
+    expect(projectEvent(e, gm, nothing)).toEqual(e);
     const t = { type: 'token.upserted', token: tok({ layer: 'gm' }) } as const;
-    expect(projectEvent(t, gm)).toEqual(t);
-    expect(projectEvent({ type: 'token.removed', tokenId: 'x' }, player)).toEqual({ type: 'token.removed', tokenId: 'x' });
-    expect(projectEvent({ type: 'map.upserted', map: map() }, player)).toEqual({ type: 'map.upserted', map: map() });
+    expect(projectEvent(t, gm, nothing)).toEqual(t);
+    expect(projectEvent({ type: 'map.upserted', map: map() }, player, nothing)).toEqual({ type: 'map.upserted', map: map() });
   });
   it('chat não visível vira null', () => {
     const hidden = msg({ recipients: ['g', 'q'] });
-    expect(projectEvent({ type: 'chat.added', message: hidden }, player)).toBeNull();
-    expect(projectEvent({ type: 'chat.updated', message: hidden }, player)).toBeNull();
-    expect(projectEvent({ type: 'chat.added', message: msg() }, player)).not.toBeNull();
+    expect(projectEvent({ type: 'chat.added', message: hidden }, player, nothing)).toBeNull();
+    expect(projectEvent({ type: 'chat.updated', message: hidden }, player, nothing)).toBeNull();
+    expect(projectEvent({ type: 'chat.added', message: msg() }, player, nothing)).not.toBeNull();
+  });
+  it('jogador não vê em que mapa estão os outros membros; o próprio e o mestre sim', () => {
+    const other = { userId: 'q', displayName: 'Davi', avatarUrl: null, role: 'player', currentMapId: 'm2' } as const;
+    const self = { ...other, userId: 'p', displayName: 'Lia' };
+    expect(projectEvent({ type: 'member.upserted', member: other }, player, nothing)).toEqual({ type: 'member.upserted', member: { ...other, currentMapId: null } });
+    expect(projectEvent({ type: 'member.upserted', member: self }, player, nothing)).toEqual({ type: 'member.upserted', member: self });
+    expect(projectEvent({ type: 'member.upserted', member: other }, gm, nothing)).toEqual({ type: 'member.upserted', member: other });
   });
 });
 
@@ -58,6 +75,15 @@ describe('snapshotFor', () => {
     expect(snap.canUndo).toBe(false);
     expect(JSON.stringify(snap)).not.toContain('imageKey');
     expect(JSON.stringify(snap)).not.toContain('secret-key');
+  });
+  it('no snapshot do jogador só o próprio mapa atual aparece; o mestre vê todos', () => {
+    const s = serverState({ maps: ['m1', 'm2'] });
+    s.members.push({ userId: 'q', displayName: 'Davi', avatarUrl: null, role: 'player', currentMapId: 'm2' });
+    const mapOf = (viewer: string, member: string) => snapshotFor(s, viewer, false).members.find((m) => m.userId === member)!.currentMapId;
+    expect(mapOf('p', 'q')).toBeNull();
+    expect(mapOf('p', 'p')).toBe('m1');
+    expect(mapOf('g', 'q')).toBe('m2');
+    expect(mapOf('g', 'p')).toBe('m1');
   });
   it('mestre recebe tudo e o canUndo dado', () => {
     const s = serverState({ maps: ['m1', 'm2'], tokens: [tok({ id: 'a' }), tok({ id: 'b', layer: 'gm' })], chat: [msg({ recipients: ['g', 'q'] }), msg({ id: 'w', recipients: ['p', 'q'] })] });

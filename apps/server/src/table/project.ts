@@ -4,6 +4,7 @@ import {
   canSeeToken,
   effectiveMapId,
   type ClientState,
+  type Member,
   type StateEvent,
   type Viewer,
 } from '@rpgai/shared';
@@ -18,6 +19,11 @@ export function viewerFor(state: ServerState, userId: string): Viewer | null {
   return { userId, role: member.role, mapId: effectiveMapId(member, state.campaign) };
 }
 
+/** A player sees the other members, but not on which map the GM has put them. */
+function memberFor(member: Member, viewer: Viewer): Member {
+  return viewer.role === 'gm' || member.userId === viewer.userId ? { ...member } : { ...member, currentMapId: null };
+}
+
 /** Everything `userId` may see right now; never contains image keys or hidden data. */
 export function snapshotFor(state: ServerState, userId: string, canUndo: boolean): ClientState {
   const viewer = viewerFor(state, userId);
@@ -28,7 +34,7 @@ export function snapshotFor(state: ServerState, userId: string, canUndo: boolean
   return {
     campaign: { ...state.campaign },
     me: { userId, role: viewer.role },
-    members: state.members.map((m) => ({ ...m })),
+    members: state.members.map((m) => memberFor(m, viewer)),
     maps: maps.map(publicMap),
     tokens: tokens.map(publicToken),
     chat: chat.map((m) => ({ ...m })),
@@ -36,11 +42,20 @@ export function snapshotFor(state: ServerState, userId: string, canUndo: boolean
   };
 }
 
-/** The version of `event` this viewer may receive, or null when they must not get it. */
-export function projectEvent(event: StateEvent, viewer: Viewer): StateEvent | null {
+/**
+ * The version of `event` this viewer may receive, or null when they must not get it.
+ * `knownTokens` is what they were already told about: a removal is news only to them,
+ * and to anyone else it would reveal that a hidden token exists and just changed.
+ */
+export function projectEvent(event: StateEvent, viewer: Viewer, knownTokens: ReadonlySet<string>): StateEvent | null {
   switch (event.type) {
     case 'token.upserted':
-      return canSeeToken(viewer, event.token) ? event : { type: 'token.removed', tokenId: event.token.id };
+      if (canSeeToken(viewer, event.token)) return event;
+      return knownTokens.has(event.token.id) ? { type: 'token.removed', tokenId: event.token.id } : null;
+    case 'token.removed':
+      return knownTokens.has(event.tokenId) ? event : null;
+    case 'member.upserted':
+      return { type: 'member.upserted', member: memberFor(event.member, viewer) };
     case 'map.upserted':
       return canSeeMap(viewer, event.map.id) ? event : null;
     case 'map.removed':
@@ -51,9 +66,7 @@ export function projectEvent(event: StateEvent, viewer: Viewer): StateEvent | nu
     case 'undo.available':
       return viewer.role === 'gm' ? event : null;
     case 'campaign.updated':
-    case 'member.upserted':
     case 'member.removed':
-    case 'token.removed':
       return event;
   }
 }

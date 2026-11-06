@@ -7,7 +7,7 @@ import type { AppDeps } from '../app';
 import { userFromRequest } from '../auth/sessions';
 import { getMembership } from '../campaigns/membership';
 import type { Db } from '../db/client';
-import { CLOSE_FORBIDDEN, CLOSE_UNAUTHENTICATED, send, snapshot, type Seat, type TableHub } from './hub';
+import { CLOSE_FORBIDDEN, CLOSE_UNAUTHENTICATED, send, sendSnapshot, type Seat, type TableHub } from './hub';
 
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_PENDING_MESSAGES = 256;
@@ -41,7 +41,7 @@ async function takeSeat(db: Db, hub: TableHub, socket: WebSocket, req: FastifyRe
         socket.close(CLOSE_FORBIDDEN, 'forbidden');
         return null;
       }
-      const seat: Seat = { socket, room, userId: user.id, revoked: false };
+      const seat: Seat = { socket, room, userId: user.id, revoked: false, knownTokens: new Set() };
       // A socket that closed meanwhile is not seated, but what it sent still runs.
       if (socket.readyState === socket.OPEN) {
         hub.add(seat);
@@ -54,7 +54,7 @@ async function takeSeat(db: Db, hub: TableHub, socket: WebSocket, req: FastifyRe
         socket.close(CLOSE_UNAUTHENTICATED, 'unauthenticated');
         return null;
       }
-      send(socket, snapshot(room, user.id));
+      sendSnapshot(seat);
       return seat;
     });
   } catch (err) {

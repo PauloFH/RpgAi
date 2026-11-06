@@ -1,5 +1,5 @@
 import type { WebSocket } from '@fastify/websocket';
-import type { ServerMessage, StateEvent } from '@rpgai/shared';
+import type { ServerMessage, StateEvent, Viewer } from '@rpgai/shared';
 import { projectEvent, snapshotFor, viewerFor } from './project';
 import type { RoomRegistry } from './registry';
 import type { CampaignRoom } from './room';
@@ -16,6 +16,8 @@ export interface Seat {
   userId: string;
   /** The person logged out: what this socket still had waiting must not run. */
   revoked: boolean;
+  /** Tokens this socket has on screen: those from its last snapshot and events since. */
+  knownTokens: Set<string>;
 }
 
 /** A failure on one socket stays with that socket; closed sockets are skipped. */
@@ -32,8 +34,18 @@ export function send(socket: WebSocket, message: ServerMessage): void {
   }
 }
 
-export function snapshot(room: CampaignRoom, userId: string): ServerMessage {
-  return { t: 'snapshot', state: snapshotFor(room.state(), userId, room.canUndo()) };
+export function sendSnapshot(seat: Seat): void {
+  const state = snapshotFor(seat.room.state(), seat.userId, seat.room.canUndo());
+  seat.knownTokens = new Set(state.tokens.map((t) => t.id));
+  send(seat.socket, { t: 'snapshot', state });
+}
+
+function sendEvent(seat: Seat, event: StateEvent, viewer: Viewer): void {
+  const visible = projectEvent(event, viewer, seat.knownTokens);
+  if (!visible) return;
+  if (visible.type === 'token.upserted') seat.knownTokens.add(visible.token.id);
+  if (visible.type === 'token.removed') seat.knownTokens.delete(visible.tokenId);
+  send(seat.socket, { t: 'event', event: visible });
 }
 
 /** The open seats of each campaign, and what they receive when its room changes. */
@@ -69,12 +81,9 @@ export class TableHub {
           this.remove(seat);
           seat.socket.close(CLOSE_FORBIDDEN, 'forbidden');
         } else if (resnapshot.includes(seat.userId)) {
-          send(seat.socket, snapshot(room, seat.userId));
+          sendSnapshot(seat);
         } else {
-          for (const event of events) {
-            const visible = projectEvent(event, viewer);
-            if (visible) send(seat.socket, { t: 'event', event: visible });
-          }
+          for (const event of events) sendEvent(seat, event, viewer);
         }
       } catch (err) {
         console.error(`[ws] publish to ${seat.userId} failed`, err);
