@@ -48,8 +48,10 @@ export function connectTable(url: string, handlers: TableHandlers, WS: typeof We
       handlers.onStatus('online');
     };
     ws.onmessage = ev => {
-      let msg: ServerMessage;
-      try { msg = JSON.parse(String(ev.data)) as ServerMessage; } catch { return; }
+      let parsed: unknown;
+      try { parsed = JSON.parse(String(ev.data)); } catch { return; }
+      if (typeof parsed !== 'object' || parsed === null || typeof (parsed as { t?: unknown }).t !== 'string') return;
+      const msg = parsed as ServerMessage;
       if (msg.t === 'ack') {
         const p = pending.get(msg.id);
         pending.delete(msg.id);

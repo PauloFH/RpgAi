@@ -103,6 +103,18 @@ describe('connectTable', () => {
     expect(FakeWS.count).toBe(2);
   });
 
+  it('mensagem malformada nao chega ao handler nem lanca', () => {
+    const conn = connectTable('ws://x', handlers, WS); FakeWS.last.open();
+    for (const data of ['null', '5', '"x"', '{}', '{"t":1}']) {
+      expect(() => FakeWS.last.onmessage?.({ data })).not.toThrow();
+    }
+    expect(handlers.onMessage).not.toHaveBeenCalled();
+    const ok: ServerMessage = { t: 'event', event: { type: 'undo.available', canUndo: true } };
+    FakeWS.last.receive(ok);
+    expect(handlers.onMessage).toHaveBeenCalledWith(ok);
+    conn.close();
+  });
+
   it('repassa mensagens, inclusive erro sem id, e ignora lixo', () => {
     const conn = connectTable('ws://x', handlers, WS); FakeWS.last.open();
     const err: ServerMessage = { t: 'error', id: null, code: 'invalid', message: 'x' };
