@@ -158,7 +158,7 @@ export class CampaignRoom {
     const member = this.current.members.find((m) => m.userId === actor.userId);
     if (!member) return fail('forbidden', 'Você não é membro desta campanha.');
     try {
-      if (action.type === 'undo') return await this.undo(member);
+      if (action.type === 'undo') return await this.undo(actor, member);
       const plan = await planAction(this.db, this.current, member, action, this.rng);
       if (!plan.ok) return plan;
       return await this.apply(actor, action, plan.change);
@@ -194,7 +194,7 @@ export class CampaignRoom {
     return this.ok(events, before);
   }
 
-  private async undo(member: Member): Promise<DispatchOk | DispatchErr> {
+  private async undo(actor: Actor, member: Member): Promise<DispatchOk | DispatchErr> {
     if (member.role !== 'gm') return fail('forbidden', 'Só o mestre pode desfazer.');
     const before = this.viewers();
     const done = await this.db.transaction(async (tx) => {
@@ -203,7 +203,10 @@ export class CampaignRoom {
       if (!row.inverse) throw new Error(`action_log ${row.id} has no inverse`);
       const inverse = row.inverse as InverseOp;
       await persistChange(tx, this.campaignId, inverse);
-      await tx.update(actionLog).set({ undone: true }).where(eq(actionLog.id, row.id));
+      await tx
+        .update(actionLog)
+        .set({ undone: true, undoneBy: actor.userId, undoneVia: actor.via, undoneAt: new Date() })
+        .where(eq(actionLog.id, row.id));
       return { inverse, more: (await findUndoable(tx, this.campaignId, anyOf(this.gmIds()))) !== null };
     });
     if (!done) return fail('nothing_to_undo', 'Não há nada para desfazer.');

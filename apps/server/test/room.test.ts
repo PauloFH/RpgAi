@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { desc } from 'drizzle-orm';
 import type { Action } from '@rpgai/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { actionLog, uploads } from '../src/db/schema';
@@ -255,6 +256,20 @@ describe('fila da sala', () => {
     });
     await expect(room.memberJoined(G.userId)).rejects.toThrow('Query read timeout');
     expect(await room.dispatch(G, { type: 'chat.send', text: 'sigo aqui' })).toMatchObject({ ok: true });
+  });
+});
+
+describe('registro do desfazer', () => {
+  it('grava quem desfez, por onde e quando, sem tocar em quem fez', async () => {
+    const { t, room, G, P, m1 } = await setup();
+    await room.dispatch(G, { type: 'member.setRole', userId: P.userId, role: 'gm' });
+    await room.dispatch(P, { type: 'token.create', mapId: m1, name: 'T', x: 0, y: 0, size: 1, color: '#000000', layer: 'tokens', ownerIds: [] });
+    const before = Date.now();
+    await room.dispatch({ userId: G.userId, via: 'api' }, { type: 'undo' });
+    const rows = await t.db.select().from(actionLog).orderBy(desc(actionLog.id));
+    expect(rows[0]).toMatchObject({ type: 'token.create', actorId: P.userId, via: 'web', undone: true, undoneBy: G.userId, undoneVia: 'api' });
+    expect(rows[0]!.undoneAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(rows[1]).toMatchObject({ undone: false, undoneBy: null, undoneVia: null, undoneAt: null });
   });
 });
 

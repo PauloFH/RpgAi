@@ -8,6 +8,13 @@
       "when": 1793921988383,
       "tag": "0000_gigantic_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793930891914,
+      "tag": "0001_hot_albert_cleary",
+      "breakpoints": true
     }
   ]
 }
