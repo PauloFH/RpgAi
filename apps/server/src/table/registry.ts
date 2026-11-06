@@ -11,6 +11,11 @@ export class RoomRegistry {
     private readonly rng: Rng,
   ) {}
 
+  /** The room if it is loaded or loading; never starts a load. */
+  peek(campaignId: string): Promise<CampaignRoom> | undefined {
+    return this.rooms.get(campaignId);
+  }
+
   get(campaignId: string): Promise<CampaignRoom> {
     const cached = this.rooms.get(campaignId);
     if (cached) return cached;

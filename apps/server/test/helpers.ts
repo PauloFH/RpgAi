@@ -38,14 +38,16 @@ export async function createTestApp(
     db,
   };
   const app = await buildApp(deps);
+  let closing: Promise<void> | undefined;
   return {
     app,
     db,
     deps,
-    close: async () => {
-      await app.close();
-      await owned?.close();
-    },
+    close: () =>
+      (closing ??= (async () => {
+        await app.close();
+        await owned?.close();
+      })()),
   };
 }
 

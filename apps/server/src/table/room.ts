@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, type SQL } from 'drizzle-orm';
 import {
   ActionSchema,
   effectiveMapId,
@@ -44,18 +44,7 @@ export class CampaignRoom {
     const [c] = await db.select().from(campaigns).where(eq(campaigns.id, campaignId));
     if (!c) throw new Error(`campaign ${campaignId} not found`);
     const [memberRows, mapRows, tokenRows, chatRows] = await Promise.all([
-      db
-        .select({
-          userId: campaignMembers.userId,
-          displayName: users.displayName,
-          avatarUrl: users.avatarUrl,
-          role: campaignMembers.role,
-          currentMapId: campaignMembers.currentMapId,
-        })
-        .from(campaignMembers)
-        .innerJoin(users, eq(users.id, campaignMembers.userId))
-        .where(eq(campaignMembers.campaignId, campaignId))
-        .orderBy(campaignMembers.joinedAt),
+      selectMembers(db, eq(campaignMembers.campaignId, campaignId)),
       db.select().from(maps).where(eq(maps.campaignId, campaignId)).orderBy(maps.createdAt, maps.id),
       db.select().from(tokens).where(eq(tokens.campaignId, campaignId)).orderBy(tokens.createdAt, tokens.id),
       db
@@ -74,7 +63,7 @@ export class CampaignRoom {
         defaultMapId: c.defaultMapId,
         playersCanMove: c.playersCanMove,
       },
-      members: memberRows.map((m) => ({ ...m, role: m.role as Role })),
+      members: memberRows,
       maps: mapRows.map((m) => ({
         id: m.id,
         name: m.name,
@@ -130,11 +119,36 @@ export class CampaignRoom {
     return this.undoable;
   }
 
-  /** Runs one action at a time per room, in arrival order. */
-  dispatch(actor: Actor, action: Action): Promise<DispatchOk | DispatchErr> {
-    const result = this.queue.then(() => this.run(actor, action));
+  /**
+   * Runs `task` when the room is idle, in arrival order with every action. Whoever
+   * awaits the returned promise directly resumes before the next task starts, so
+   * publishing a result right after the await keeps events in order.
+   */
+  enqueue<T>(task: () => T | Promise<T>): Promise<T> {
+    const result = this.queue.then(task);
     this.queue = result.catch(() => undefined);
     return result;
+  }
+
+  /** Runs one action at a time per room, in arrival order. */
+  dispatch(actor: Actor, action: Action): Promise<DispatchOk | DispatchErr> {
+    return this.enqueue(() => this.run(actor, action));
+  }
+
+  /**
+   * Brings a member added outside the room (invite accepted) into its state.
+   * Not an action: it has no action_log row and cannot be undone.
+   */
+  memberJoined(userId: string): Promise<StateEvent[]> {
+    return this.enqueue(async () => {
+      const [member] = await selectMembers(
+        this.db,
+        and(eq(campaignMembers.campaignId, this.campaignId), eq(campaignMembers.userId, userId)),
+      );
+      if (!member) return [];
+      this.current.members = [...this.current.members.filter((m) => m.userId !== userId), member];
+      return [{ type: 'member.upserted', member: { ...member } }];
+    });
   }
 
   private async run(actor: Actor, input: Action): Promise<DispatchOk | DispatchErr> {
@@ -212,6 +226,22 @@ export class CampaignRoom {
       members.map((m) => [m.userId, m.role === 'gm' ? 'gm' : `player:${effectiveMapId(m, campaign) ?? ''}`]),
     );
   }
+}
+
+async function selectMembers(db: Db, where: SQL | undefined): Promise<Member[]> {
+  const rows = await db
+    .select({
+      userId: campaignMembers.userId,
+      displayName: users.displayName,
+      avatarUrl: users.avatarUrl,
+      role: campaignMembers.role,
+      currentMapId: campaignMembers.currentMapId,
+    })
+    .from(campaignMembers)
+    .innerJoin(users, eq(users.id, campaignMembers.userId))
+    .where(where)
+    .orderBy(campaignMembers.joinedAt);
+  return rows.map((m) => ({ ...m, role: m.role as Role }));
 }
 
 /** True when a message with these recipients is visible to at least one of `userIds`. */

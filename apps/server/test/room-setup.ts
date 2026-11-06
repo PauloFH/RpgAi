@@ -30,5 +30,5 @@ export async function setup(opts: { secondMap?: boolean; rng?: Rng } = {}) {
   const m1 = await createMap('Estalagem', keys[0]!);
   const m2 = opts.secondMap ? await createMap('Floresta', keys[1]!) : undefined;
   // m2 only exists with `secondMap: true`; typed as string so tests can use it directly.
-  return { t, room, G, P, m1, m2: m2 as string, campaignId, keys };
+  return { t, room, G, P, m1, m2: m2 as string, campaignId, keys, gmSession: gm, player };
 }

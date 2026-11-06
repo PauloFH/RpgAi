@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../app';
 import { requireUser } from '../auth/sessions';
 import { campaignMembers, campaigns, invites } from '../db/schema';
+import type { TableHub } from '../table/ws';
 import { getMembership } from './membership';
 
 const CreateBody = z.object({
@@ -14,7 +15,7 @@ const CreateBody = z.object({
 });
 const Uuid = z.string().uuid();
 
-export async function registerCampaignRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
+export async function registerCampaignRoutes(app: FastifyInstance, deps: AppDeps, table: TableHub): Promise<void> {
   const { db, config } = deps;
   const auth = { preHandler: requireUser(db) };
 
@@ -93,10 +94,12 @@ export async function registerCampaignRoutes(app: FastifyInstance, deps: AppDeps
   app.post('/api/invites/:token/accept', auth, async (req, reply) => {
     const invite = await findInvite((req.params as { token: string }).token);
     if (!invite) return reply.code(404).send({ error: 'not_found' });
-    await db
+    const joined = await db
       .insert(campaignMembers)
       .values({ campaignId: invite.campaignId, userId: req.user!.id, role: 'player' })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ userId: campaignMembers.userId });
+    if (joined.length > 0) await table.memberJoined(invite.campaignId, req.user!.id);
     return { campaignId: invite.campaignId };
   });
 }
