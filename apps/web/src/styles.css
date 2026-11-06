@@ -421,3 +421,32 @@ s.die {
   min-width: 6rem;
   overflow-wrap: anywhere;
 }
+
+/* Telas estreitas: os painéis laterais de largura fixa deixariam o mapa sem largura. */
+@media (max-width: 1000px) {
+  .table-page {
+    height: auto;
+    min-height: 100vh;
+  }
+  .table-columns,
+  .table-columns.with-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .table-map {
+    order: -1;
+    height: 60vh;
+    min-height: 320px;
+  }
+  .chat {
+    height: 50vh;
+    min-height: 280px;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .gm-panel {
+    order: 1;
+    overflow-y: visible;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+}
