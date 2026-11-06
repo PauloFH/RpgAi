@@ -35,13 +35,15 @@ export function send(socket: WebSocket, message: ServerMessage): void {
 }
 
 export function sendSnapshot(seat: Seat): void {
-  const state = snapshotFor(seat.room.state(), seat.userId, seat.room.canUndo());
+  const state = snapshotFor(seat.room.state(), seat.userId, seat.room.canUndo(seat.userId));
   seat.knownTokens = new Set(state.tokens.map((t) => t.id));
   send(seat.socket, { t: 'snapshot', state });
 }
 
 function sendEvent(seat: Seat, event: StateEvent, viewer: Viewer): void {
-  const visible = projectEvent(event, viewer, seat.knownTokens);
+  // Exact per GM: what one can undo may be a whisper that another one cannot see.
+  const personal = event.type === 'undo.available' ? { ...event, canUndo: seat.room.canUndo(seat.userId) } : event;
+  const visible = projectEvent(personal, viewer, seat.knownTokens);
   if (!visible) return;
   if (visible.type === 'token.upserted') seat.knownTokens.add(visible.token.id);
   if (visible.type === 'token.removed') seat.knownTokens.delete(visible.tokenId);

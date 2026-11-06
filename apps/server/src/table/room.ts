@@ -1,4 +1,4 @@
-import { and, desc, eq, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, type SQL } from 'drizzle-orm';
 import {
   ActionSchema,
   effectiveMapId,
@@ -29,6 +29,8 @@ export interface ServerState {
 export interface DispatchOk { ok: true; events: StateEvent[]; resnapshot: string[] } // userIds que precisam de snapshot novo
 export interface DispatchErr { ok: false; code: ErrorCode; message: string }
 
+export const UNDO_PAGE_SIZE = 50;
+
 export class CampaignRoom {
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -37,7 +39,8 @@ export class CampaignRoom {
     readonly campaignId: string,
     private readonly rng: Rng,
     private readonly current: ServerState,
-    private undoable: boolean,
+    /** The GMs who have something to undo; see findUndoable. */
+    private undoers: Set<string>,
   ) {}
 
   static async load(db: Db, campaignId: string, rng: Rng): Promise<CampaignRoom> {
@@ -102,7 +105,7 @@ export class CampaignRoom {
       })),
     };
     const gmIds = state.members.filter((m) => m.role === 'gm').map((m) => m.userId);
-    return new CampaignRoom(db, campaignId, rng, state, (await findUndoable(db, campaignId, anyOf(gmIds))) !== null);
+    return new CampaignRoom(db, campaignId, rng, state, new Set((await findUndoable(db, campaignId, gmIds)).keys()));
   }
 
   /** Full internal state. Callers must treat it as read-only. */
@@ -114,9 +117,9 @@ export class CampaignRoom {
     return this.current.members.some((m) => m.userId === userId);
   }
 
-  /** True while the campaign has an action that was not undone yet. */
-  canUndo(): boolean {
-    return this.undoable;
+  /** Whether this GM has an action to undo; without a GM, whether any of them has. */
+  canUndo(gmId?: string): boolean {
+    return gmId === undefined ? this.undoers.size > 0 : this.undoers.has(gmId);
   }
 
   /**
@@ -187,21 +190,29 @@ export class CampaignRoom {
       });
     });
     const events = applyChange(this.current, change);
-    // Committed and in memory: a failed read must not report the action as failed and
-    // leave it unpublished. The previous value stands until the next successful read.
+    await this.refreshUndoers();
+    return this.ok(events, before);
+  }
+
+  /**
+   * After the commit and with the new roster, since an undo can change who is a GM.
+   * Committed and in memory: a failed read must not report the action as failed and
+   * leave it unpublished. The previous value stands until the next successful read.
+   */
+  private async refreshUndoers(): Promise<void> {
+    const gmIds = this.current.members.filter((m) => m.role === 'gm').map((m) => m.userId);
     try {
-      this.undoable = (await findUndoable(this.db, this.campaignId, anyOf(this.gmIds()))) !== null;
+      this.undoers = new Set((await findUndoable(this.db, this.campaignId, gmIds)).keys());
     } catch (err) {
       console.error(`[room ${this.campaignId}] could not refresh canUndo`, err);
     }
-    return this.ok(events, before);
   }
 
   private async undo(actor: Actor, member: Member): Promise<DispatchOk | DispatchErr> {
     if (member.role !== 'gm') return fail('forbidden', 'Só o mestre pode desfazer.');
     const before = this.viewers();
-    const done = await this.db.transaction(async (tx) => {
-      const row = await findUndoable(tx, this.campaignId, anyOf([member.userId]));
+    const inverse = await this.db.transaction(async (tx) => {
+      const row = (await findUndoable(tx, this.campaignId, [member.userId])).get(member.userId);
       if (!row) return null;
       if (!row.inverse) throw new Error(`action_log ${row.id} has no inverse`);
       const inverse = row.inverse as InverseOp;
@@ -210,22 +221,18 @@ export class CampaignRoom {
         .update(actionLog)
         .set({ undone: true, undoneBy: actor.userId, undoneVia: actor.via, undoneAt: new Date() })
         .where(eq(actionLog.id, row.id));
-      return { inverse, more: (await findUndoable(tx, this.campaignId, anyOf(this.gmIds()))) !== null };
+      return inverse;
     });
-    if (!done) return fail('nothing_to_undo', 'Não há nada para desfazer.');
-    const events = applyChange(this.current, done.inverse);
-    this.undoable = done.more;
+    if (!inverse) return fail('nothing_to_undo', 'Não há nada para desfazer.');
+    const events = applyChange(this.current, inverse);
+    await this.refreshUndoers();
     return this.ok(events, before);
-  }
-
-  private gmIds(): string[] {
-    return this.current.members.filter((m) => m.role === 'gm').map((m) => m.userId);
   }
 
   private ok(events: StateEvent[], before: Map<string, string>): DispatchOk {
     const after = this.viewers();
     const resnapshot = [...before].filter(([userId, view]) => after.get(userId) !== view).map(([userId]) => userId);
-    return { ok: true, events: [...events, { type: 'undo.available', canUndo: this.undoable }], resnapshot };
+    return { ok: true, events: [...events, { type: 'undo.available', canUndo: this.canUndo() }], resnapshot };
   }
 
   /**
@@ -256,34 +263,62 @@ async function selectMembers(db: Db, where: SQL | undefined): Promise<Member[]> 
   return rows.map((m) => ({ ...m, role: m.role as Role }));
 }
 
-/** True when a message with these recipients is visible to at least one of `userIds`. */
-const anyOf = (userIds: string[]) => (recipients: string[] | null) =>
-  recipients === null || userIds.some((id) => recipients.includes(id));
+interface LogRow { id: number; type: string; inverse: unknown }
+
+const messageIdOf = (row: LogRow): string => {
+  const messageId = (row.inverse as { messageId?: string } | null)?.messageId;
+  if (!messageId) throw new Error(`action_log ${row.id} has no message id`);
+  return messageId;
+};
+
+/** Who can see the chat messages of these rows, by message id. */
+async function recipientsOf(db: Db, rows: LogRow[]): Promise<Map<string, string[] | null>> {
+  if (rows.length === 0) return new Map();
+  const messages = await db
+    .select({ id: chatMessages.id, recipients: chatMessages.recipients })
+    .from(chatMessages)
+    .where(inArray(chatMessages.id, rows.map(messageIdOf)));
+  return new Map(messages.map((m) => [m.id, m.recipients]));
+}
 
 /**
- * The latest action not yet undone that the undoing GM may undo: any action except
- * a chat.send whose message that GM cannot see (e.g. a whisper between other members).
- * `canUndo` uses the same rule with "any GM" as the viewer.
+ * For each of `gmIds` that has one, the latest action not yet undone that this GM may
+ * undo: any action except a chat.send whose message they cannot see (e.g. a whisper
+ * between other members). Reads the log from the newest, a page at a time, and stops
+ * when every GM has an answer: usually the first page, however long the log is.
  */
-async function findUndoable(
-  db: Db,
-  campaignId: string,
-  canSee: (recipients: string[] | null) => boolean,
-): Promise<{ id: number; inverse: unknown } | null> {
-  const rows = await db
-    .select({ id: actionLog.id, type: actionLog.type, inverse: actionLog.inverse })
-    .from(actionLog)
-    .where(and(eq(actionLog.campaignId, campaignId), eq(actionLog.undone, false)))
-    .orderBy(desc(actionLog.id));
-  for (const row of rows) {
-    if (row.type !== 'chat.send') return row;
-    const messageId = (row.inverse as { messageId?: string } | null)?.messageId;
-    if (!messageId) throw new Error(`action_log ${row.id} has no message id`);
-    const [message] = await db
-      .select({ recipients: chatMessages.recipients })
-      .from(chatMessages)
-      .where(eq(chatMessages.id, messageId));
-    if (message && canSee(message.recipients)) return row;
+async function findUndoable(db: Db, campaignId: string, gmIds: string[]): Promise<Map<string, LogRow>> {
+  const found = new Map<string, LogRow>();
+  let before: number | undefined;
+  while (found.size < gmIds.length) {
+    const rows: LogRow[] = await db
+      .select({ id: actionLog.id, type: actionLog.type, inverse: actionLog.inverse })
+      .from(actionLog)
+      .where(
+        and(
+          eq(actionLog.campaignId, campaignId),
+          eq(actionLog.undone, false),
+          before === undefined ? undefined : lt(actionLog.id, before),
+        ),
+      )
+      .orderBy(desc(actionLog.id))
+      .limit(UNDO_PAGE_SIZE);
+    // Any other action settles every GM, so the messages after it do not matter.
+    const firstOther = rows.findIndex((row) => row.type !== 'chat.send');
+    const recipients = await recipientsOf(db, firstOther === -1 ? rows : rows.slice(0, firstOther));
+    for (const row of rows) {
+      const isChat = row.type === 'chat.send';
+      const messageId = isChat ? messageIdOf(row) : '';
+      for (const gmId of gmIds) {
+        if (found.has(gmId)) continue;
+        // A message no longer in the table is invisible to everyone.
+        const audience = isChat ? recipients.get(messageId) : null;
+        if (audience === null || audience?.includes(gmId)) found.set(gmId, row);
+      }
+      if (found.size === gmIds.length) break;
+    }
+    if (rows.length < UNDO_PAGE_SIZE) break;
+    before = rows.at(-1)!.id;
   }
-  return null;
+  return found;
 }

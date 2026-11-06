@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { desc, eq } from 'drizzle-orm';
 import type { MapInfo } from '@rpgai/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { actionLog } from '../src/db/schema';
+import { actionLog, campaignMembers } from '../src/db/schema';
 import { CampaignRoom } from '../src/table/room';
 import { createTestApp, login, seedCampaign } from './helpers';
 import { closeCode, connect, wsSetup } from './ws-setup';
@@ -223,6 +223,33 @@ describe('o que o jogador não pode saber', () => {
     expect(mapOfPlayer(own.state)).toBe(m2);
     const later = await (await connect(s.url, third.cookie, s.campaignId)).next(isSnapshot);
     expect(mapOfPlayer(later.state)).toBeNull();
+  });
+});
+
+describe('desfazer com dois mestres', () => {
+  it('cada mestre recebe o próprio canUndo, no snapshot e nos eventos', async () => {
+    const { t, url, gm, pl, campaignId, gmSession } = await wsSetup();
+    await Promise.all([gm.next(isSnapshot), pl.next(isSnapshot)]);
+    gm.send({ t: 'cmd', id: 'u', action: { type: 'undo' } }); // tira o map.create: nada a desfazer
+    await gm.next((m) => m.t === 'event' && m.event.type === 'undo.available' && m.event.canUndo === false);
+
+    // Written directly so that no action enters the log: only the whisper below will be there.
+    const session = await login(t.app, 'Davi');
+    await t.db.insert(campaignMembers).values({ campaignId, userId: session.userId, role: 'gm' });
+    const second = await connect(url, session.cookie, campaignId);
+    expect(await second.next(isSnapshot)).toMatchObject({ state: { me: { role: 'gm' }, canUndo: false } });
+
+    gm.send({ t: 'cmd', id: 'w', action: { type: 'chat.send', text: '/w Lia segredo' } });
+    const undoState = (m: { t: string; event?: { type: string } }) => m.t === 'event' && m.event?.type === 'undo.available';
+    expect((await gm.next(undoState)).event.canUndo).toBe(true);
+    expect((await second.next(undoState)).event.canUndo).toBe(false);
+
+    const snapshotOf = async (cookie: string) => (await (await connect(url, cookie, campaignId)).next(isSnapshot)).state.canUndo;
+    expect(await snapshotOf(gmSession.cookie)).toBe(true);
+    expect(await snapshotOf(session.cookie)).toBe(false);
+
+    second.send({ t: 'cmd', id: 'x', action: { type: 'undo' } });
+    expect(await second.next((m) => m.t === 'error')).toMatchObject({ id: 'x', code: 'nothing_to_undo' });
   });
 });
 

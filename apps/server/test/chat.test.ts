@@ -1,7 +1,108 @@
+import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 import { actionLog, campaignMembers, chatMessages, users } from '../src/db/schema';
-import { CampaignRoom } from '../src/table/room';
+import { CampaignRoom, UNDO_PAGE_SIZE } from '../src/table/room';
 import { setup } from './room-setup';
+
+describe('leitura do log para desfazer', () => {
+  /** `count` whispers between two players, written directly: much faster than dispatching them. */
+  async function hiddenWhispers(t: Awaited<ReturnType<typeof setup>>['t'], campaignId: string, from: string, to: string, count: number) {
+    for (let i = 0; i < count; i++) {
+      const id = randomUUID();
+      await t.db.insert(chatMessages).values({ id, campaignId, authorId: from, kind: 'whisper', text: `psiu ${i}`, recipients: [from, to] });
+      await t.db.insert(actionLog).values({ campaignId, actorId: from, via: 'web', type: 'chat.send', payload: {}, inverse: { op: 'chat.markUndone', messageId: id } });
+    }
+  }
+  async function withThirdPlayer(s: Awaited<ReturnType<typeof setup>>) {
+    const [other] = await s.t.db.insert(users).values({ displayName: 'Davi' }).returning();
+    await s.t.db.insert(campaignMembers).values({ campaignId: s.campaignId, userId: other!.id, role: 'player' });
+    return other!.id;
+  }
+
+  it.each([UNDO_PAGE_SIZE - 1, UNDO_PAGE_SIZE, UNDO_PAGE_SIZE + 1, UNDO_PAGE_SIZE * 2 + 5])(
+    'desfazer atravessa %i sussurros invisíveis até a ação anterior',
+    async (count) => {
+      const s = await setup();
+      const davi = await withThirdPlayer(s);
+      await s.room.dispatch(s.G, { type: 'token.create', mapId: s.m1, name: 'Goblin', x: 1, y: 1, size: 1, color: '#c9483f', layer: 'tokens', ownerIds: [] });
+      await hiddenWhispers(s.t, s.campaignId, s.P.userId, davi, count);
+      const fresh = await CampaignRoom.load(s.t.db, s.campaignId, s.t.deps.rng);
+      expect(fresh.canUndo(s.G.userId)).toBe(true);
+      expect(await fresh.dispatch(s.G, { type: 'undo' })).toMatchObject({ ok: true });
+      expect(fresh.state().tokens).toEqual([]);
+      const whispers = await s.t.db.select().from(actionLog).where(eq(actionLog.type, 'chat.send'));
+      expect(whispers.every((row) => !row.undone)).toBe(true);
+    },
+    30_000,
+  );
+  it('um log só de sussurros invisíveis não dá nada para desfazer, em várias páginas', async () => {
+    const s = await setup();
+    const davi = await withThirdPlayer(s);
+    await s.room.dispatch(s.G, { type: 'undo' }); // tira o map.create
+    await hiddenWhispers(s.t, s.campaignId, s.P.userId, davi, UNDO_PAGE_SIZE + 3);
+    const fresh = await CampaignRoom.load(s.t.db, s.campaignId, s.t.deps.rng);
+    expect(fresh.canUndo()).toBe(false);
+    expect(await fresh.dispatch(s.G, { type: 'undo' })).toMatchObject({ code: 'nothing_to_undo' });
+  }, 30_000);
+  it('lê o log por páginas: o custo não cresce com o tamanho dele', async () => {
+    const s = await setup();
+    await s.t.db.insert(actionLog).values(
+      Array.from({ length: UNDO_PAGE_SIZE * 3 }, () => ({ campaignId: s.campaignId, actorId: s.G.userId, via: 'web', type: 'campaign.update', payload: {}, inverse: { op: 'campaign.set', fields: {} } })),
+    );
+    const client = (s.t.db as unknown as { $client: { query(...args: unknown[]): Promise<{ rows: unknown[] }> } }).$client;
+    const query = client.query.bind(client);
+    const logRows: number[] = [];
+    const spy = vi.spyOn(client, 'query').mockImplementation(async (...args) => {
+      const result = await query(...args);
+      if (String(args[0]).includes('from "action_log"')) logRows.push(result.rows.length);
+      return result;
+    });
+    await CampaignRoom.load(s.t.db, s.campaignId, s.t.deps.rng);
+    spy.mockRestore();
+    expect(logRows).toHaveLength(1);
+    expect(logRows[0]).toBeLessThanOrEqual(UNDO_PAGE_SIZE);
+  });
+  it('sussurros invisíveis em sequência custam poucas consultas', async () => {
+    const s = await setup();
+    const davi = await withThirdPlayer(s);
+    await hiddenWhispers(s.t, s.campaignId, s.P.userId, davi, UNDO_PAGE_SIZE);
+    const select = vi.spyOn(s.t.db, 'select');
+    await CampaignRoom.load(s.t.db, s.campaignId, s.t.deps.rng);
+    const calls = select.mock.calls.length;
+    select.mockRestore();
+    // 5 to load the room (campaign, members, maps, tokens, chat) + at most 2 log pages with their messages.
+    expect(calls).toBeLessThanOrEqual(5 + 4);
+  }, 30_000);
+});
+
+describe('canUndo exato por mestre', () => {
+  it('com dois mestres, o sussurro que um deles não vê só conta para o outro', async () => {
+    const { room, G, P, t, campaignId } = await setup();
+    await room.dispatch(G, { type: 'undo' }); // log sem nada desfazível
+    const [second] = await t.db.insert(users).values({ displayName: 'Davi' }).returning();
+    await t.db.insert(campaignMembers).values({ campaignId, userId: second!.id, role: 'gm' });
+    await room.memberJoined(second!.id);
+    await room.dispatch(G, { type: 'chat.send', text: '/w Lia segredo' });
+
+    expect(room.canUndo(G.userId)).toBe(true);
+    expect(room.canUndo(second!.id)).toBe(false);
+    expect(room.canUndo(P.userId)).toBe(false);
+    const secondGm = { userId: second!.id, via: 'web' } as const;
+    expect(await room.dispatch(secondGm, { type: 'undo' })).toMatchObject({ code: 'nothing_to_undo' });
+    expect(await room.dispatch(G, { type: 'undo' })).toMatchObject({ ok: true });
+    expect(room.canUndo(G.userId)).toBe(false);
+  });
+  it('mestre promovido por um desfazer passa a contar', async () => {
+    const { room, G, P } = await setup();
+    await room.dispatch(G, { type: 'member.setRole', userId: P.userId, role: 'gm' });
+    await room.dispatch(P, { type: 'member.setRole', userId: G.userId, role: 'player' });
+    expect(room.canUndo(G.userId)).toBe(false);
+    await room.dispatch(P, { type: 'undo' }); // G volta a ser mestre
+    expect(room.canUndo(G.userId)).toBe(true);
+    expect(room.canUndo(P.userId)).toBe(true);
+  });
+});
 
 describe('chat', () => {
   it('/r rola no servidor e todos veem', async () => {
