@@ -24,7 +24,7 @@ function Home() {
 
 const openTable = async (): Promise<TableHandlers> => {
   render(
-    <MemoryRouter initialEntries={['/c/x']}>
+    <MemoryRouter initialEntries={['/c/x']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         <Route path="/c/x" element={<TablePage campaignId="x" />} />
         <Route path="/" element={<Home />} />

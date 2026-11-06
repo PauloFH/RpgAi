@@ -13,7 +13,7 @@ function Search() {
 
 const renderAt = (entry: string) =>
   render(
-    <MemoryRouter initialEntries={[entry]}>
+    <MemoryRouter initialEntries={[entry]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <HomePage />
       <Search />
     </MemoryRouter>,
