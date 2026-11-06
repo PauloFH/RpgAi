@@ -1,0 +1,157 @@
+:root {
+  --bg: #121016;
+  --panel: #211e28;
+  --surface: #17151c;
+  --line: #3a3543;
+  --text: #ece7dc;
+  --dim: #a79f93;
+  --gold: #d9a441;
+  --red: #c9483f;
+  --green: #5da65a;
+  --blue: #5b8fd9;
+  --font-display: 'Alegreya', Georgia, serif;
+  --font-body: 'Alegreya Sans', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.5;
+}
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+h1 {
+  color: var(--gold);
+  font-size: 2rem;
+}
+h2 {
+  font-size: 1.4rem;
+}
+h3 {
+  font-size: 1.1rem;
+}
+a {
+  color: var(--blue);
+}
+
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  display: grid;
+  gap: 1rem;
+}
+.page.narrow {
+  max-width: 440px;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.bar h1 {
+  margin: 0;
+  flex: 1;
+}
+.dim {
+  color: var(--dim);
+}
+.error {
+  color: var(--red);
+  margin: 0;
+}
+
+input,
+select,
+button,
+.button {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+input[type='checkbox'] {
+  padding: 0;
+}
+button,
+.button {
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+}
+button:hover,
+.button:hover {
+  border-color: var(--gold);
+}
+.primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--bg);
+  font-weight: 700;
+}
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.login {
+  display: grid;
+  gap: 1rem;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.list li a {
+  flex: 1;
+  font-weight: 700;
+}
+.badge {
+  font-size: 0.85rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  border: 1px solid;
+}
+.badge.gm {
+  color: var(--gold);
+}
+.badge.player {
+  color: var(--green);
+}

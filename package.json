@@ -2,14 +2,19 @@
   "name": "rpgai",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "test": "vitest run",
+    "dev": "concurrently -n server,web \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "concurrently": "^10.0.6",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   }
