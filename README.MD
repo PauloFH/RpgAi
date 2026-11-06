@@ -11,14 +11,23 @@ Plataforma de RPG de mesa online: o mestre cria uma campanha, convida os jogador
 
 ## Desenvolvimento
 
-Requer Node 22 ou superior.
+Requer Node 24 ou superior. Todos os comandos deste guia rodam na raiz do repositório.
+
+No PowerShell:
+
+```powershell
+npm install
+$env:DEV_LOGIN='true'; npm run dev
+```
+
+No Git Bash, Linux ou macOS:
 
 ```bash
 npm install
 DEV_LOGIN=true npm run dev
 ```
 
-Isso sobe o servidor na porta 3000 e o Vite na porta 5173. Sem `DATABASE_URL`, o banco é um PGlite local em `./data/pglite`.
+Isso sobe o servidor na porta 3000 e o Vite na porta 5173. Sem `DATABASE_URL`, o banco é um PGlite local em `apps/server/data/pglite` e os uploads ficam em `apps/server/data/uploads`, porque o servidor de desenvolvimento roda a partir de `apps/server`.
 
 Abra exatamente `http://localhost:5173`. O WebSocket da mesa confere o cabeçalho `Origin` com `PUBLIC_URL` (padrão `http://localhost:5173`), então `http://127.0.0.1:5173` é recusado.
 
@@ -51,7 +60,7 @@ npm run build     # gera apps/web/dist e apps/server/dist/index.js
 ## App no Discord
 
 1. Em https://discord.com/developers/applications, crie uma aplicação.
-2. Em OAuth2, adicione o redirect `PUBLIC_URL/auth/discord/callback` (por exemplo `http://localhost:5173/auth/discord/callback` em desenvolvimento).
+2. Em OAuth2, adicione o redirect `PUBLIC_URL/auth/discord/callback`: `http://localhost:5173/auth/discord/callback` em desenvolvimento e, em produção, a sua URL pública (por exemplo `https://mesa.exemplo.com/auth/discord/callback`).
 3. O escopo usado é `identify`.
 4. Copie o Client ID e o Client Secret para `DISCORD_CLIENT_ID` e `DISCORD_CLIENT_SECRET`.
 
@@ -63,7 +72,11 @@ NODE_ENV=production WEB_DIST=apps/web/dist PUBLIC_URL=https://mesa.exemplo.com \
   DATABASE_URL=postgres://usuario:senha@host:5432/rpgai DISCORD_CLIENT_ID=... DISCORD_CLIENT_SECRET=... npm start
 ```
 
+No PowerShell, defina cada variável antes (`$env:NODE_ENV='production'`, e assim por diante) e rode `npm start`.
+
 Com `NODE_ENV=production`, o servidor se recusa a subir sem `PUBLIC_URL`, sem uma `DATABASE_URL` `postgres://` ou sem as credenciais do Discord, e diz o que falta. O PGlite é só para desenvolvimento.
+
+Produção exige HTTPS: os cookies de sessão são `Secure` e o navegador os descarta em HTTP puro, então o login não se sustenta. Na frente do servidor, use um proxy que encaminhe WebSockets (a mesa usa `/ws`). O redirect do Discord em produção é `PUBLIC_URL/auth/discord/callback`, cadastrado no app do Discord.
 
 Servidor e interface saem numa só porta. Rotas fora de `/api`, `/auth`, `/files` e `/ws` devolvem o `index.html` da interface.
 
