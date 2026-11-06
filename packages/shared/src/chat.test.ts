@@ -26,6 +26,13 @@ describe('parseChat', () => {
     expect(parseChat('/w Bram vem cá')).toEqual({ kind: 'whisper', to: 'Bram', text: 'vem cá', inline: [] });
     expect(parseChat('/w "Sela Ruiva" oi')).toMatchObject({ to: 'Sela Ruiva', text: 'oi' });
   });
+  it('rolagens embutidas somam no limite de dados da mensagem', () => {
+    expect(err('[[100d6]]'.repeat(222))).toBe('too_many_dice');
+    expect(err('[[100d6]] [[100d6]] [[1d6]]')).toBe('too_many_dice');
+    expect(err('/w Bram [[100d6]] [[100d6]] [[1d6]]')).toBe('too_many_dice');
+    expect(parseChat('[[100d6]] [[100d6]]')).toMatchObject({ kind: 'text', inline: [{}, {}] });
+    expect(parseChat('[[100d6+50]] [[50d6+7]] [[50d6]]')).toMatchObject({ inline: [{}, {}, {}] });
+  });
   it('erros', () => {
     expect(err('   ')).toBe('empty');
     expect(err('a'.repeat(2001))).toBe('too_long');

@@ -1,4 +1,4 @@
-import { parseDice, DiceError, type DiceExpr } from './dice';
+import { parseDice, DiceError, MAX_DICE, type DiceExpr } from './dice';
 
 export type ChatIntent =
   | { kind: 'text'; text: string; inline: DiceExpr[] }
@@ -19,7 +19,16 @@ export class ChatError extends Error {
 const MAX_CHAT = 2000;
 
 function inlineRolls(text: string): DiceExpr[] {
-  return [...text.matchAll(/\[\[(.+?)\]\]/g)].map((m) => parseDice(m[1]!));
+  const exprs: DiceExpr[] = [];
+  let dice = 0;
+  for (const m of text.matchAll(/\[\[(.+?)\]\]/g)) {
+    const expr = parseDice(m[1]!);
+    for (const term of expr.terms) if (term.kind === 'dice') dice += term.count;
+    // The cap in parseDice is per expression; this one is per message.
+    if (dice > MAX_DICE) throw new DiceError('too_many_dice');
+    exprs.push(expr);
+  }
+  return exprs;
 }
 
 function parseRoll(rest: string, secret: boolean): ChatIntent {

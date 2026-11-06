@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { actionLog, campaignMembers, users } from '../src/db/schema';
+import { describe, expect, it, vi } from 'vitest';
+import { actionLog, campaignMembers, chatMessages, users } from '../src/db/schema';
 import { CampaignRoom } from '../src/table/room';
 import { setup } from './room-setup';
 
@@ -36,6 +36,17 @@ describe('chat', () => {
     expect(await room.dispatch(P, { type: 'chat.send', text: '/r 1d0' })).toMatchObject({ code: 'dice' });
     expect(await room.dispatch(P, { type: 'chat.send', text: '/r 1000000d6' })).toMatchObject({ code: 'dice' });
     expect(room.state().chat).toHaveLength(chatBefore);
+    expect(await t.db.select().from(actionLog)).toHaveLength(logBefore);
+  });
+  it('rolagens embutidas acima do limite são recusadas e não gravam nada', async () => {
+    const rolled = vi.fn((faces: number) => faces);
+    const { room, P, t } = await setup({ rng: rolled });
+    const chatBefore = room.state().chat.length;
+    const logBefore = (await t.db.select().from(actionLog)).length;
+    expect(await room.dispatch(P, { type: 'chat.send', text: '[[100d6]]'.repeat(222) })).toMatchObject({ ok: false, code: 'dice' });
+    expect(rolled).not.toHaveBeenCalled();
+    expect(room.state().chat).toHaveLength(chatBefore);
+    expect(await t.db.select().from(chatMessages)).toHaveLength(0);
     expect(await t.db.select().from(actionLog)).toHaveLength(logBefore);
   });
   it('comando desconhecido é inválido e não grava nada', async () => {

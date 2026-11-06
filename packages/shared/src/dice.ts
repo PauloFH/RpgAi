@@ -20,7 +20,7 @@ export interface RollResult { source: string; total: number; terms: TermResult[]
 
 const MAX_SOURCE = 200;
 const MAX_PER_TERM = 100;
-const MAX_TOTAL = 200;
+export const MAX_DICE = 200;
 const MIN_FACES = 2;
 const MAX_FACES = 1000;
 
@@ -66,7 +66,7 @@ export function parseDice(source: string): DiceExpr {
         keep = { mode, n };
       }
       totalDice += count;
-      if (totalDice > MAX_TOTAL) throw new DiceError('too_many_dice');
+      if (totalDice > MAX_DICE) throw new DiceError('too_many_dice');
       terms.push(keep ? { kind: 'dice', sign, count, faces, keep } : { kind: 'dice', sign, count, faces });
     } else {
       if (first === null) throw new DiceError('syntax');
