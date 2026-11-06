@@ -31,7 +31,7 @@ export const t = {
   },
   table: {
     reconnecting: 'Reconectando…',
-    removedNotice: 'Você não faz mais parte desta campanha',
+    noAccessNotice: 'Você não tem acesso a esta campanha.',
     noMapPlayer: 'O mestre ainda não escolheu um mapa para você.',
     noMapGm: 'Nenhum mapa ainda. Envie uma imagem no painel do mestre.',
     dismiss: 'Fechar',

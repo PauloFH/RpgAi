@@ -40,7 +40,7 @@ export function TablePage({ campaignId }: { campaignId: string }) {
         onClosed(code) {
           if (code === CLOSE_UNAUTHENTICATED) navigateRef.current('/', { replace: true });
           else if (code === CLOSE_FORBIDDEN) {
-            navigateRef.current('/', { replace: true, state: { notice: t.table.removedNotice } });
+            navigateRef.current('/', { replace: true, state: { notice: t.table.noAccessNotice } });
           }
         },
       });
