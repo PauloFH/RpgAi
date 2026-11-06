@@ -22,8 +22,19 @@ export interface AppDeps {
   rng: Rng;
 }
 
+/** Fastify's default request log has the query string, and the Discord callback carries its code there. */
+export const PRODUCTION_LOGGER = {
+  serializers: {
+    req: (req: { method: string; url: string; ip?: string }) => ({
+      method: req.method,
+      url: req.url.split('?')[0],
+      remoteAddress: req.ip,
+    }),
+  },
+};
+
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: deps.config.production ? PRODUCTION_LOGGER : false });
   await app.register(cookie);
   const table = new TableHub(new RoomRegistry(deps.db, deps.rng));
   // First, so the websocket plugin also guards upgrade requests to the routes below.

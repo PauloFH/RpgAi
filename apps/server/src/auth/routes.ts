@@ -68,7 +68,8 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps, ta
     try {
       const accessToken = await discord.exchangeCode(query.data.code, redirectUri);
       profile = await discord.getUser(accessToken);
-    } catch {
+    } catch (err) {
+      app.log.error({ err }, 'discord login failed');
       return reply.code(502).send({ error: 'discord_error' });
     }
     const displayName = profile.global_name ?? profile.username;

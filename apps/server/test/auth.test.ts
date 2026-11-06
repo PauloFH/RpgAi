@@ -1,4 +1,6 @@
-import { expect, it } from 'vitest';
+import Fastify from 'fastify';
+import { expect, it, vi } from 'vitest';
+import { PRODUCTION_LOGGER } from '../src/app';
 import type { DiscordClient } from '../src/auth/discord';
 import { sessions } from '../src/db/schema';
 import { createTestApp, login, testConfig } from './helpers';
@@ -46,6 +48,37 @@ it('state diferente é recusado', async () => {
     cookies: { oauth_state: 'y' },
   });
   expect(cb.statusCode).toBe(400);
+});
+
+it('falha do Discord fica registrada no log, sem o código recebido', async () => {
+  const t = await createTestApp({ discord: fakeDiscord });
+  const logged = vi.spyOn(t.app.log, 'error').mockImplementation(() => undefined);
+  await t.app.inject({
+    url: '/auth/discord/callback?code=codigo-secreto&state=s',
+    cookies: { oauth_state: 's' },
+  });
+  expect(logged).toHaveBeenCalledTimes(1);
+  expect(logged).toHaveBeenCalledWith({ err: expect.any(Error) }, expect.any(String));
+  const [fields, message] = logged.mock.calls[0] as unknown as [{ err: Error }, string];
+  expect(`${fields.err.message} ${message}`).not.toContain('codigo-secreto');
+});
+
+it('em produção o app registra as requisições', async () => {
+  const off = await createTestApp();
+  expect(off.app.log.level).not.toBe('info');
+  const on = await createTestApp({ config: { ...testConfig(), production: true, devLogin: false } });
+  expect(on.app.log.level).toBe('info');
+});
+
+it('o log de requisições não contém a query, onde vem o código do Discord', async () => {
+  const lines: string[] = [];
+  const app = Fastify({ logger: { ...PRODUCTION_LOGGER, stream: { write: (line: string) => void lines.push(line) } } });
+  app.get('/auth/discord/callback', async () => 'ok');
+  await app.inject({ url: '/auth/discord/callback?code=codigo-secreto&state=s' });
+  await app.close();
+  const output = lines.join('');
+  expect(output).toContain('/auth/discord/callback');
+  expect(output).not.toContain('codigo-secreto');
 });
 
 it('dev-login não existe em produção', async () => {
