@@ -26,9 +26,10 @@ export interface TestClient {
   closed(): Promise<number>;
 }
 
-export function connect(url: string, cookie: string, campaignId: string): Promise<TestClient> {
+export function connect(url: string, cookie: string, campaignId: string, origin?: string): Promise<TestClient> {
   const socket = new WebSocket(`${url}?campaign=${encodeURIComponent(campaignId)}`, {
     headers: cookie ? { cookie } : {},
+    ...(origin ? { origin } : {}),
   });
   sockets.add(socket);
 
@@ -84,8 +85,6 @@ export async function closeCode(url: string, cookie: string, campaignId: string)
   return (await connect(url, cookie, campaignId)).closed();
 }
 
-const isSnapshot = (message: Message) => message.t === 'snapshot';
-
 /** A listening app with one campaign, its map(s) and both members connected. */
 export async function wsSetup(opts: { secondMap?: boolean } = {}) {
   const base = await setup(opts);
@@ -96,9 +95,6 @@ export async function wsSetup(opts: { secondMap?: boolean } = {}) {
 
   const gm = await connect(url, gmSession.cookie, campaignId);
   const pl = await connect(url, player.cookie, campaignId);
-  // The second-map test reads the snapshot its map change causes, so the first ones
-  // must be out of the way; every other test reads or skips them on its own.
-  if (opts.secondMap) await Promise.all([gm.next(isSnapshot), pl.next(isSnapshot)]);
 
   return {
     t,

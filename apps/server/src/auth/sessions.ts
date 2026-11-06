@@ -33,8 +33,13 @@ export async function createSession(db: Db, userId: string): Promise<string> {
   return token;
 }
 
-export async function deleteSession(db: Db, token: string): Promise<void> {
-  await db.delete(sessions).where(eq(sessions.idHash, hashToken(token)));
+/** Deletes the session and returns its user, or null if there was no such session. */
+export async function deleteSession(db: Db, token: string): Promise<string | null> {
+  const [row] = await db
+    .delete(sessions)
+    .where(eq(sessions.idHash, hashToken(token)))
+    .returning({ userId: sessions.userId });
+  return row?.userId ?? null;
 }
 
 export async function userFromRequest(db: Db, req: FastifyRequest): Promise<AuthUser | null> {

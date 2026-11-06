@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../app';
 import { requireUser } from '../auth/sessions';
 import { campaignMembers, campaigns, invites } from '../db/schema';
-import type { TableHub } from '../table/ws';
+import type { TableHub } from '../table/hub';
 import { getMembership } from './membership';
 
 const CreateBody = z.object({

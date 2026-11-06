@@ -47,6 +47,7 @@ describe('conexão em tempo real', () => {
   });
   it('mudar o mapa do jogador manda snapshot novo', async () => {
     const { gm, pl, m2, player } = await wsSetup({ secondMap: true });
+    await pl.next(m => m.t === 'snapshot');
     gm.send({ t: 'cmd', id: 'm', action: { type: 'member.setMap', userId: player.userId, mapId: m2 } });
     const snap = await pl.next(m => m.t === 'snapshot');
     expect(snap.state.maps.map((x: MapInfo) => x.id)).toEqual([m2]);
@@ -308,6 +309,169 @@ describe('entrada por convite', () => {
   });
 });
 
+describe('limites', () => {
+  const chat = (id: string) => ({ t: 'cmd', id, action: { type: 'chat.send', text: id } });
+  /** The next dispatch hangs until released; the ones after it succeed at once. */
+  const holdDispatch = () => {
+    let release!: () => void;
+    const dispatch = vi.spyOn(CampaignRoom.prototype, 'dispatch');
+    dispatch.mockImplementation(async () => ({ ok: true, events: [], resnapshot: [] }));
+    dispatch.mockImplementationOnce(
+      () => new Promise((resolve) => (release = () => resolve({ ok: true, events: [], resnapshot: [] }))),
+    );
+    return { dispatch, release: () => release() };
+  };
+
+  it('aceita até 256 mensagens pendentes por conexão', async () => {
+    const { gm } = await wsSetup();
+    await gm.next(isSnapshot);
+    const { dispatch, release } = holdDispatch();
+    for (let i = 0; i < 256; i++) gm.send(chat(String(i)));
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    release();
+    for (let i = 0; i < 256; i++) expect(await gm.next()).toEqual({ t: 'ack', id: String(i) });
+    gm.send(chat('depois'));
+    expect(await gm.next()).toEqual({ t: 'ack', id: 'depois' });
+  });
+  it('fecha com 4408 a conexão que passa de 256 pendentes, e só ela', async () => {
+    const { gm, pl } = await wsSetup();
+    await gm.next(isSnapshot);
+    const { dispatch, release } = holdDispatch();
+    for (let i = 0; i < 300; i++) gm.send(chat(String(i)));
+    expect(await gm.closed()).toBe(4408);
+    release();
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(256));
+    pl.send(chat('sigo aqui'));
+    expect(await pl.next((m) => m.t === 'ack')).toEqual({ t: 'ack', id: 'sigo aqui' });
+    expect(dispatch).toHaveBeenCalledTimes(257);
+  });
+  it('mensagens pendentes de conexões diferentes não somam', async () => {
+    const { gm, pl } = await wsSetup();
+    const { release } = holdDispatch();
+    for (let i = 0; i < 200; i++) {
+      gm.send(chat(`g${i}`));
+      pl.send(chat(`p${i}`));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    release();
+    expect(await gm.next((m) => m.id === 'g199')).toEqual({ t: 'ack', id: 'g199' });
+    expect(await pl.next((m) => m.id === 'p199')).toEqual({ t: 'ack', id: 'p199' });
+  });
+  it('recusa campo a mais no envelope, devolvendo o id', async () => {
+    const { pl } = await wsSetup();
+    pl.send({ ...chat('p'), padding: 'x'.repeat(1000) });
+    expect(await pl.next((m) => m.t === 'error')).toMatchObject({ id: 'p', code: 'invalid' });
+    pl.send(chat('q'));
+    expect(await pl.next((m) => m.t === 'ack')).toEqual({ t: 'ack', id: 'q' });
+  });
+  it('derruba a conexão que não consome o que recebe, e só ela', async () => {
+    const { t, gm, pl, url, campaignId, player } = await wsSetup();
+    await pl.next(isSnapshot);
+    const known = new Set(t.app.websocketServer.clients);
+    const slow = await connect(url, player.cookie, campaignId);
+    await slow.next(isSnapshot);
+    const serverSide = [...t.app.websocketServer.clients].find((s) => !known.has(s))!;
+    Object.defineProperty(serverSide, 'bufferedAmount', { value: 8 * 1024 * 1024 + 1 });
+    gm.send(chat('a'));
+    expect(await slow.closed()).toBe(1006);
+    expect(await pl.next((m) => m.t === 'event')).toMatchObject({ event: { type: 'chat.added' } });
+  });
+  it('não derruba quem está exatamente no teto de 8 MiB', async () => {
+    const { t, gm, pl, url, campaignId, player } = await wsSetup();
+    await pl.next(isSnapshot);
+    const known = new Set(t.app.websocketServer.clients);
+    const tab = await connect(url, player.cookie, campaignId);
+    await tab.next(isSnapshot);
+    const serverSide = [...t.app.websocketServer.clients].find((s) => !known.has(s))!;
+    Object.defineProperty(serverSide, 'bufferedAmount', { value: 8 * 1024 * 1024 });
+    gm.send(chat('a'));
+    expect(await tab.next((m) => m.t === 'event')).toMatchObject({ event: { type: 'chat.added' } });
+  });
+});
+
+describe('origem', () => {
+  it('fecha com 4403 quem vem de outra origem, antes de olhar a sessão', async () => {
+    const { url, campaignId, gmSession } = await wsSetup();
+    const foreign = ['https://irmao.localhost:5173', 'http://localhost:5174', 'https://localhost:5173', 'null'];
+    for (const origin of foreign) {
+      expect(await (await connect(url, gmSession.cookie, campaignId, origin)).closed()).toBe(4403);
+    }
+    expect(await (await connect(url, '', campaignId, foreign[0])).closed()).toBe(4403);
+  });
+  it('aceita a origem do site e cliente sem origem', async () => {
+    const { url, campaignId, gmSession } = await wsSetup();
+    const browser = await connect(url, gmSession.cookie, campaignId, 'http://localhost:5173');
+    expect(await browser.next()).toMatchObject({ t: 'snapshot' });
+    const noOrigin = await connect(url, gmSession.cookie, campaignId);
+    expect(await noOrigin.next()).toMatchObject({ t: 'snapshot' });
+  });
+});
+
+describe('logout', () => {
+  const logout = (t: Awaited<ReturnType<typeof createTestApp>>, cookie: string) =>
+    t.app.inject({ method: 'POST', url: '/auth/logout', headers: { cookie } });
+
+  it('fecha com 4401 todas as conexões da pessoa, e só as dela', async () => {
+    const { t, gm, pl, player, url, campaignId } = await wsSetup();
+    const tab = await connect(url, player.cookie, campaignId);
+    await Promise.all([pl.next(isSnapshot), tab.next(isSnapshot), gm.next(isSnapshot)]);
+    expect((await logout(t, player.cookie)).statusCode).toBe(204);
+    expect(await Promise.all([pl.closed(), tab.closed()])).toEqual([4401, 4401]);
+    expect(await closeCode(url, player.cookie, campaignId)).toBe(4401);
+    gm.send({ t: 'cmd', id: 'a', action: { type: 'chat.send', text: 'sigo aqui' } });
+    expect(await gm.next()).toEqual({ t: 'ack', id: 'a' });
+  });
+  it('logout sem sessão válida não derruba ninguém', async () => {
+    const { t, pl } = await wsSetup();
+    await pl.next(isSnapshot);
+    expect((await logout(t, 'sid=nao-existe')).statusCode).toBe(204);
+    pl.send({ t: 'cmd', id: 'a', action: { type: 'chat.send', text: 'sigo aqui' } });
+    expect(await pl.next()).toEqual({ t: 'ack', id: 'a' });
+  });
+  it('comandos que ainda esperavam a vez não rodam depois do logout', async () => {
+    const { t, pl, player } = await wsSetup();
+    await pl.next(isSnapshot);
+    let release!: () => void;
+    const dispatch = vi.spyOn(CampaignRoom.prototype, 'dispatch').mockImplementationOnce(
+      () => new Promise((resolve) => (release = () => resolve({ ok: true, events: [], resnapshot: [] }))),
+    );
+    pl.send({ t: 'cmd', id: '1', action: { type: 'chat.send', text: 'primeiro' } });
+    pl.send({ t: 'cmd', id: '2', action: { type: 'chat.send', text: 'na fila' } });
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await logout(t, player.cookie);
+    expect(await pl.closed()).toBe(4401);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+  it('quem estava conectando durante o logout também é fechado, sem receber snapshot', async () => {
+    const { t, gm, player, url, campaignId } = await wsSetup();
+    await gm.next(isSnapshot);
+    let applied!: () => void;
+    const busy = new Promise<void>((resolve) => (applied = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const proto = CampaignRoom.prototype as unknown as { run(...args: unknown[]): Promise<unknown> };
+    const run = proto.run;
+    vi.spyOn(proto, 'run').mockImplementationOnce(async function (this: unknown, ...args: unknown[]) {
+      const result = await run.apply(this, args);
+      applied();
+      await released;
+      return result;
+    });
+    gm.send({ t: 'cmd', id: 'a', action: { type: 'chat.send', text: 'segura a sala' } });
+    await busy;
+    const tab = await connect(url, player.cookie, campaignId);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await logout(t, player.cookie);
+    release();
+    expect(await tab.closed()).toBe(4401);
+    expect(tab.unread()).toEqual([]);
+  });
+});
+
 describe('encerramento', () => {
   it('fechar o app derruba as conexões, espera a ação em andamento e não deixa porta aberta', async () => {
     const { t, gm, pl } = await wsSetup();
@@ -326,6 +490,29 @@ describe('encerramento', () => {
     expect(closed).toBe(false);
     release({ ok: false, code: 'internal', message: 'x' });
     await closing;
+    expect(t.app.server.listening).toBe(false);
+  });
+  it('fechar o app não espera para sempre uma ação travada', async () => {
+    const { t, gm } = await wsSetup();
+    await gm.next(isSnapshot);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const dispatch = vi.spyOn(CampaignRoom.prototype, 'dispatch').mockImplementationOnce(() => new Promise(() => undefined));
+    gm.send({ t: 'cmd', id: 'a', action: { type: 'chat.send', text: 'travou' } });
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalled());
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let closed = false;
+      void t.close().then(() => (closed = true));
+      for (let i = 0; i < 300 && !closed; i++) {
+        await vi.advanceTimersByTimeAsync(1000);
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(closed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(logged).toHaveBeenCalled();
     expect(t.app.server.listening).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { AppDeps } from '../app';
 import { users } from '../db/schema';
+import type { TableHub } from '../table/hub';
 import {
   createSession,
   deleteSession,
@@ -15,7 +16,7 @@ import {
 const DevLoginBody = z.object({ name: z.string().trim().min(1).max(80) });
 const CallbackQuery = z.object({ code: z.string().min(1), state: z.string().min(1) });
 
-export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
+export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps, table: TableHub): Promise<void> {
   const { config, db, discord } = deps;
   const cookieBase = {
     httpOnly: true,
@@ -87,7 +88,8 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
 
   app.post('/auth/logout', async (req, reply) => {
     const token = req.cookies[SESSION_COOKIE];
-    if (token) await deleteSession(db, token);
+    const userId = token ? await deleteSession(db, token) : null;
+    if (userId) table.disconnectUser(userId);
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     return reply.code(204).send();
   });

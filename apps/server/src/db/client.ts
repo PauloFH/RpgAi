@@ -21,6 +21,14 @@ type Driver =
 // The migrators are driver-specific, so remember which driver built each Db.
 const drivers = new WeakMap<object, Driver>();
 
+// Without these a stuck statement holds its room's queue, and enough of them the whole
+// pool, forever. The client-side limit is a backstop for when the server never answers.
+const POOL_TIMEOUTS = {
+  connectionTimeoutMillis: 5_000,
+  statement_timeout: 10_000,
+  query_timeout: 12_000,
+};
+
 export async function createDb(url: string): Promise<{ db: Db; close(): Promise<void> }> {
   if (url.startsWith('pglite:')) {
     const target = url.slice('pglite:'.length);
@@ -30,7 +38,7 @@ export async function createDb(url: string): Promise<{ db: Db; close(): Promise<
     drivers.set(db, { kind: 'pglite', db });
     return { db, close: () => client.close() };
   }
-  const pool = new pg.Pool({ connectionString: url });
+  const pool = new pg.Pool({ connectionString: url, ...POOL_TIMEOUTS });
   const db = drizzlePg(pool, { schema });
   drivers.set(db, { kind: 'pg', db });
   return { db, close: () => pool.end() };

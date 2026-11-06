@@ -9,7 +9,8 @@ import type { Config } from './config';
 import type { Db } from './db/client';
 import type { FileStore } from './files/store';
 import { RoomRegistry } from './table/registry';
-import { TableHub, registerTableSocket } from './table/ws';
+import { TableHub } from './table/hub';
+import { registerTableSocket } from './table/ws';
 
 export interface AppDeps {
   config: Config;
@@ -26,7 +27,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // First, so the websocket plugin also guards upgrade requests to the routes below.
   await registerTableSocket(app, deps, table);
   app.get('/api/health', async () => ({ ok: true }));
-  await registerAuthRoutes(app, deps);
+  await registerAuthRoutes(app, deps, table);
   await registerCampaignRoutes(app, deps, table);
   await registerFileRoutes(app, deps);
   return app;

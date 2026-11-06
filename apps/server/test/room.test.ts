@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Action } from '@rpgai/shared';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { actionLog, uploads } from '../src/db/schema';
 import { CampaignRoom, type Actor } from '../src/table/room';
 import { RoomRegistry } from '../src/table/registry';
@@ -188,5 +188,40 @@ describe('CampaignRoom', () => {
     const [a, b] = await Promise.all([reg.get(campaignId), reg.get(campaignId)]);
     expect(a).toBe(b);
     expect(a.state().maps).toHaveLength(1);
+  });
+});
+
+describe('fila da sala', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('volta a andar depois de uma chamada ao banco que falha ou estoura o tempo', async () => {
+    const { t, room, G } = await setup();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let timeOut!: (err: Error) => void;
+    const transaction = vi
+      .spyOn(t.db, 'transaction')
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => (timeOut = reject)));
+    const stuck = room.dispatch(G, { type: 'chat.send', text: 'travou' });
+    let nextDone = false;
+    const next = room.dispatch(G, { type: 'chat.send', text: 'depois' }).finally(() => (nextDone = true));
+    await vi.waitFor(() => expect(transaction).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(nextDone).toBe(false);
+
+    timeOut(new Error('Query read timeout'));
+    expect(await stuck).toMatchObject({ ok: false, code: 'internal' });
+    expect(await next).toMatchObject({ ok: true });
+    expect(room.state().chat.map((m) => m.text)).toEqual(['depois']);
+    expect(logged).toHaveBeenCalled();
+  });
+  it('memberJoined que falha não prende a fila', async () => {
+    const { t, room, G } = await setup();
+    vi.spyOn(t.db, 'select').mockImplementationOnce(() => {
+      throw new Error('Query read timeout');
+    });
+    await expect(room.memberJoined(G.userId)).rejects.toThrow('Query read timeout');
+    expect(await room.dispatch(G, { type: 'chat.send', text: 'sigo aqui' })).toMatchObject({ ok: true });
   });
 });
