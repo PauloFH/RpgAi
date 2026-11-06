@@ -38,9 +38,11 @@ describe('CampaignRoom', () => {
     expect(await room.dispatch(P, { type: 'token.update', tokenId, x: 1, y: 0 })).toMatchObject({ code: 'forbidden' });
     expect((await room.dispatch(G, { type: 'token.update', tokenId, x: 1, y: 0 })).ok).toBe(true);
   });
-  it('posição fora do grid é inválida', async () => {
+  it('posição fora do grid é recusada com seu código, ao criar e ao mover', async () => {
     const { room, G, m1 } = await setup();
-    expect(await room.dispatch(G, { type: 'token.create', mapId: m1, name: 'T', x: 10, y: 0, size: 1, color: '#000000', layer: 'tokens', ownerIds: [] })).toMatchObject({ code: 'invalid' });
+    expect(await room.dispatch(G, { type: 'token.create', mapId: m1, name: 'T', x: 10, y: 0, size: 1, color: '#000000', layer: 'tokens', ownerIds: [] })).toMatchObject({ code: 'outside_grid' });
+    await room.dispatch(G, { type: 'token.create', mapId: m1, name: 'T', x: 0, y: 0, size: 1, color: '#000000', layer: 'tokens', ownerIds: [] });
+    expect(await room.dispatch(G, { type: 'token.update', tokenId: room.state().tokens[0]!.id, x: 10 })).toMatchObject({ code: 'outside_grid' });
   });
   it('desfazer é linear e para quando acaba', async () => {
     const { room, G, m1 } = await setup();
@@ -82,7 +84,7 @@ describe('CampaignRoom', () => {
   });
   it('não deixa a campanha sem mestre', async () => {
     const { room, G } = await setup();
-    expect(await room.dispatch(G, { type: 'member.setRole', userId: G.userId, role: 'player' })).toMatchObject({ code: 'invalid' });
+    expect(await room.dispatch(G, { type: 'member.setRole', userId: G.userId, role: 'player' })).toMatchObject({ code: 'last_gm' });
   });
   it('trocar o mapa do jogador pede snapshot novo para ele', async () => {
     const { room, G, P, m2 } = await setup({ secondMap: true });
@@ -169,7 +171,7 @@ describe('CampaignRoom', () => {
   });
   it('remover membro pede snapshot dele, desfazer devolve; último mestre não sai', async () => {
     const { room, G, P } = await setup();
-    expect(await room.dispatch(G, { type: 'member.remove', userId: G.userId })).toMatchObject({ code: 'invalid' });
+    expect(await room.dispatch(G, { type: 'member.remove', userId: G.userId })).toMatchObject({ code: 'last_gm' });
     const r = await room.dispatch(G, { type: 'member.remove', userId: P.userId });
     expect(r.ok && r.resnapshot).toEqual([P.userId]);
     expect(room.isMember(P.userId)).toBe(false);

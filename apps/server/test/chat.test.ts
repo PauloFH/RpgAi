@@ -25,7 +25,22 @@ describe('chat', () => {
     const { room, G, P } = await setup();
     await room.dispatch(G, { type: 'chat.send', text: '/w lia cuidado' });
     expect(room.state().chat.at(-1)).toMatchObject({ kind: 'whisper', text: 'cuidado', recipients: [G.userId, P.userId] });
-    expect(await room.dispatch(G, { type: 'chat.send', text: '/w Ninguém oi' })).toMatchObject({ code: 'invalid' });
+    expect(await room.dispatch(G, { type: 'chat.send', text: '/w Ninguém oi' })).toMatchObject({ code: 'unknown_member' });
+  });
+  it('nome com espaço sem aspas é membro desconhecido; com aspas funciona', async () => {
+    const { room, G, t, campaignId } = await setup();
+    const [paulo] = await t.db.insert(users).values({ displayName: 'Paulo Roberto' }).returning();
+    await t.db.insert(campaignMembers).values({ campaignId, userId: paulo!.id, role: 'player' });
+    await room.memberJoined(paulo!.id);
+    expect(await room.dispatch(G, { type: 'chat.send', text: '/w Paulo Roberto oi' })).toMatchObject({ ok: false, code: 'unknown_member' });
+    expect(await room.dispatch(G, { type: 'chat.send', text: '/w "Paulo Roberto" oi' })).toMatchObject({ ok: true });
+    expect(room.state().chat.at(-1)).toMatchObject({ kind: 'whisper', recipients: [G.userId, paulo!.id] });
+  });
+  it('sussurro malformado é bad_whisper', async () => {
+    const { room, G } = await setup();
+    for (const text of ['/w', '/w Lia', '/w "Lia oi']) {
+      expect(await room.dispatch(G, { type: 'chat.send', text })).toMatchObject({ ok: false, code: 'bad_whisper' });
+    }
   });
   it('rolagens embutidas e dados inválidos', async () => {
     const { room, P, t } = await setup();
@@ -49,11 +64,11 @@ describe('chat', () => {
     expect(await t.db.select().from(chatMessages)).toHaveLength(0);
     expect(await t.db.select().from(actionLog)).toHaveLength(logBefore);
   });
-  it('comando desconhecido é inválido e não grava nada', async () => {
+  it('comando desconhecido é recusado com seu código e não grava nada', async () => {
     const { room, P, t } = await setup();
     const before = room.state().chat.length;
     const logBefore = (await t.db.select().from(actionLog)).length;
-    expect(await room.dispatch(P, { type: 'chat.send', text: '/xyz' })).toMatchObject({ ok: false, code: 'invalid' });
+    expect(await room.dispatch(P, { type: 'chat.send', text: '/xyz' })).toMatchObject({ ok: false, code: 'unknown_command' });
     expect(room.state().chat).toHaveLength(before);
     expect(await t.db.select().from(actionLog)).toHaveLength(logBefore);
   });

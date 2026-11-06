@@ -22,6 +22,14 @@ const state = (chat: ChatMessage[]): ClientState => ({
 const conn = (send: TableConnection['send'] = vi.fn(async () => {})): TableConnection => ({ send, close: vi.fn() });
 
 describe('ChatPanel', () => {
+  it('sussurro para quem não existe ensina a usar aspas', async () => {
+    const send = vi.fn(async () => { throw new ActionError('unknown_member'); });
+    render(<ChatPanel state={state([])} conn={conn(send)} />);
+    fireEvent.change(screen.getByLabelText(t.chat.message), { target: { value: '/w Paulo Roberto oi' } });
+    fireEvent.click(screen.getByText(t.chat.send));
+    expect((await screen.findByRole('alert')).textContent).toContain('/w "Paulo Roberto" oi');
+  });
+
   it('mostra autor e texto', () => {
     render(<ChatPanel state={state([message({})])} conn={conn()} />);
     expect(screen.getByText('Mestre')).toBeTruthy();

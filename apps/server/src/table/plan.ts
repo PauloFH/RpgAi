@@ -28,8 +28,8 @@ const NOT_FOUND = {
 };
 const FORBIDDEN = fail('forbidden', 'Você não tem permissão para isso.');
 const NOTHING_TO_CHANGE = fail('invalid', 'Nada para alterar.');
-const OUTSIDE_GRID = fail('invalid', 'Posição fora do grid.');
-const LAST_GM = fail('invalid', 'A campanha precisa de pelo menos um mestre.');
+const OUTSIDE_GRID = fail('outside_grid', 'Posição fora do grid.');
+const LAST_GM = fail('last_gm', 'A campanha precisa de pelo menos um mestre.');
 
 /**
  * Validates `action` for `actor` against the current state and resolves it to the
@@ -182,8 +182,10 @@ function planChat(state: ServerState, actor: Member, text: string, rng: Rng): Pl
     });
   } catch (err) {
     if (err instanceof DiceError) return fail('dice', err.message);
-    if (err instanceof ChatError) return fail('invalid', err.message);
-    if (err instanceof Error && err.message === 'unknown_member') return fail('invalid', 'Unknown or ambiguous whisper target.');
+    if (err instanceof ChatError) {
+      return fail(err.code === 'unknown_command' || err.code === 'bad_whisper' ? err.code : 'invalid', err.message);
+    }
+    if (err instanceof Error && err.message === 'unknown_member') return fail('unknown_member', 'Membro não encontrado.');
     throw err;
   }
 }

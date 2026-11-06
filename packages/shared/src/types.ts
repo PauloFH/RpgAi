@@ -11,7 +11,18 @@ export interface Token { id: string; mapId: string; name: string; x: number; y: 
 export interface ChatMessage { id: string; authorId: string; kind: 'text' | 'roll' | 'whisper'; text: string; label: string | null; rolls: RollResult[]; secret: boolean; recipients: string[] | null; undone: boolean; createdAt: string }
 export interface ClientState { campaign: CampaignInfo; me: { userId: string; role: Role }; members: Member[]; maps: MapInfo[]; tokens: Token[]; chat: ChatMessage[]; canUndo: boolean }
 export interface Viewer { userId: string; role: Role; mapId: string | null } // mapId = mapa efetivo
-export type ErrorCode = 'forbidden' | 'invalid' | 'not_found' | 'nothing_to_undo' | 'dice' | 'internal';
+export type ErrorCode =
+  | 'forbidden'
+  | 'invalid'
+  | 'not_found'
+  | 'nothing_to_undo'
+  | 'dice'
+  | 'internal'
+  | 'unknown_member'
+  | 'unknown_command'
+  | 'bad_whisper'
+  | 'outside_grid'
+  | 'last_gm';
 export type StateEvent =
   | { type: 'campaign.updated'; campaign: CampaignInfo }
   | { type: 'member.upserted'; member: Member } | { type: 'member.removed'; userId: string }
