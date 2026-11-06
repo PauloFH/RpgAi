@@ -268,6 +268,18 @@ describe('mensagens recebidas', () => {
     expect(acks).toEqual(['1', '2', '3']);
     expect(texts).toEqual(['msg 1', 'msg 2', 'msg 3']);
   });
+  it('nome só de espaços é recusado pelo socket, e nome com espaços nas pontas é aparado', async () => {
+    const { gm, m1 } = await wsSetup();
+    await gm.next(isSnapshot);
+    gm.raw(JSON.stringify({ t: 'cmd', id: 'a', action: { type: 'token.create', mapId: m1, name: '   ', x: 0, y: 0 } }));
+    expect(await gm.next((m) => m.t === 'error')).toMatchObject({ id: 'a', code: 'invalid' });
+    gm.raw(JSON.stringify({ t: 'cmd', id: 'b', action: { type: 'map.update', mapId: m1, name: '   ' } }));
+    expect(await gm.next((m) => m.t === 'error')).toMatchObject({ id: 'b', code: 'invalid' });
+    gm.raw(JSON.stringify({ t: 'cmd', id: 'c', action: { type: 'campaign.update', name: ' \t ' } }));
+    expect(await gm.next((m) => m.t === 'error')).toMatchObject({ id: 'c', code: 'invalid' });
+    gm.raw(JSON.stringify({ t: 'cmd', id: 'd', action: { type: 'token.create', mapId: m1, name: '  Lia  ', x: 0, y: 0 } }));
+    expect(await gm.next((m) => m.t === 'event' && m.event.type === 'token.upserted')).toMatchObject({ event: { token: { name: 'Lia' } } });
+  });
   it('recusa como inválido o que não é comando, devolvendo o id quando dá para ler', async () => {
     const { pl } = await wsSetup();
     for (const garbage of ['null', '[]', '12', '{"t":"ping"}', '{"t":"cmd","id":7,"action":{"type":"undo"}}']) {
