@@ -139,5 +139,6 @@ const errors: Record<string, string> = {
 };
 
 export function errorText(code: string): string {
-  return errors[code] ?? 'Algo deu errado. Tente novamente.';
+  // The code can come from the URL: `__proto__` or `toString` must not reach the prototype.
+  return Object.hasOwn(errors, code) ? errors[code]! : 'Algo deu errado. Tente novamente.';
 }
