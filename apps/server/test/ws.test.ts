@@ -239,7 +239,7 @@ describe('desfazer com dois mestres', () => {
     const second = await connect(url, session.cookie, campaignId);
     expect(await second.next(isSnapshot)).toMatchObject({ state: { me: { role: 'gm' }, canUndo: false } });
 
-    gm.send({ t: 'cmd', id: 'w', action: { type: 'chat.send', text: '/w Lia segredo' } });
+    gm.send({ t: 'cmd', id: 'w', action: { type: 'chat.send', text: '/w Lia segredo [[1d20]]' } });
     const undoState = (m: { t: string; event?: { type: string } }) => m.t === 'event' && m.event?.type === 'undo.available';
     expect((await gm.next(undoState)).event.canUndo).toBe(true);
     expect((await second.next(undoState)).event.canUndo).toBe(false);

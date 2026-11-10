@@ -234,21 +234,21 @@ describe('fila da sala', () => {
       });
       return committed;
     });
-    const result = await room.dispatch(G, { type: 'chat.send', text: 'gravada' });
+    const result = await room.dispatch(G, { type: 'chat.send', text: '/r 1d20 gravada' });
 
     expect(result).toMatchObject({
       ok: true,
       events: [
-        { type: 'chat.added', message: { text: 'gravada' } },
+        { type: 'chat.added', message: { label: 'gravada' } },
         { type: 'undo.available', canUndo: false },
       ],
     });
-    expect(room.state().chat.map((m) => m.text)).toEqual(['gravada']);
+    expect(room.state().chat.map((m) => m.label)).toEqual(['gravada']);
     expect(room.canUndo()).toBe(false); // previous value kept
     expect(logged).toHaveBeenCalled();
 
-    expect(await room.dispatch(G, { type: 'chat.send', text: 'depois' })).toMatchObject({ ok: true });
-    expect(room.state().chat.map((m) => m.text)).toEqual(['gravada', 'depois']);
+    expect(await room.dispatch(G, { type: 'chat.send', text: '/r 1d20 depois' })).toMatchObject({ ok: true });
+    expect(room.state().chat.map((m) => m.label)).toEqual(['gravada', 'depois']);
     expect(room.canUndo()).toBe(true); // the next successful read corrects it
   });
   it('memberJoined que falha não prende a fila', async () => {

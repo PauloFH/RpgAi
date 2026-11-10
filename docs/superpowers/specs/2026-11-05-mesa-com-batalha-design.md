@@ -84,7 +84,7 @@ Consequências:
 - Desfazer é desfazer ações; o histórico da sessão é a lista de ações.
 - A IA dos projetos seguintes usa as mesmas ações que o mestre, com as mesmas permissões e validações. Nada de caminho especial para ela.
 - As regras de 5e ficam num módulo próprio, usado pelo servidor (e pelo navegador só para pré-visualizar, nunca para decidir).
-- **Desfazer [escolha do design]:** linear. O mestre desfaz a última ação, depois a anterior, e assim por diante, na mesa e na batalha, inclusive ações feitas pela API ou pelo MCP. Não existe desfazer seletivo de uma ação antiga no meio do histórico. Rolagens desfeitas continuam no chat, marcadas como desfeitas, para ninguém "rolar de novo até sair bom".
+- **Desfazer [escolha do design]:** linear. O mestre desfaz a última ação, depois a anterior, e assim por diante, na mesa e na batalha, inclusive ações feitas pela API ou pelo MCP. Não existe desfazer seletivo de uma ação antiga no meio do histórico. Mensagens só de texto no chat não entram no desfazer **[Paulo]**: ficam registradas no histórico, mas o desfazer passa por elas e vai para a ação ou rolagem anterior. Rolagens (`/r`, `/gr`, `[[ ]]`, inclusive dentro de sussurro) entram. Rolagens desfeitas continuam no chat, marcadas como desfeitas, para ninguém "rolar de novo até sair bom".
 - **Informação escondida [escolha do design]:** o servidor só envia a cada jogador o que ele pode ver. Tokens fora da visão, a camada do mestre, rolagens secretas, sussurros de outros e handouts não revelados nunca chegam ao navegador dele nem à API com a chave dele. A névoa não é só desenho por cima.
 
 ### 6.2 Campanhas e papéis

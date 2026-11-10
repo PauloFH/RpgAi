@@ -59,7 +59,7 @@ function find<T>(items: T[], pred: (item: T) => boolean, what: string): T {
 }
 
 /** Builds the InverseOp that undoes `change`, from the state before it is applied. */
-export function invert(state: ServerState, change: Change): InverseOp {
+export function invert(state: ServerState, change: Change): InverseOp | null {
   switch (change.op) {
     case 'campaign.set':
       return { op: 'campaign.set', fields: previous(state.campaign, change.fields) };
@@ -98,7 +98,8 @@ export function invert(state: ServerState, change: Change): InverseOp {
     case 'token.restore':
       return { op: 'token.delete', tokenId: change.token.id };
     case 'chat.add':
-      return { op: 'chat.markUndone', messageId: change.message.id };
+      // Only rolls can be undone: plain text is logged without an inverse.
+      return change.message.rolls.length > 0 ? { op: 'chat.markUndone', messageId: change.message.id } : null;
     case 'member.restore':
     case 'chat.markUndone':
       throw new Error(`${change.op} is only used as an inverse`);

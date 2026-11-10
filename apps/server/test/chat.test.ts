@@ -83,7 +83,7 @@ describe('canUndo exato por mestre', () => {
     const [second] = await t.db.insert(users).values({ displayName: 'Davi' }).returning();
     await t.db.insert(campaignMembers).values({ campaignId, userId: second!.id, role: 'gm' });
     await room.memberJoined(second!.id);
-    await room.dispatch(G, { type: 'chat.send', text: '/w Lia segredo' });
+    await room.dispatch(G, { type: 'chat.send', text: '/w Lia segredo [[1d20]]' });
 
     expect(room.canUndo(G.userId)).toBe(true);
     expect(room.canUndo(second!.id)).toBe(false);
@@ -180,6 +180,40 @@ describe('chat', () => {
     expect(room.state().chat.at(-1)!.undone).toBe(true);
     expect(r.ok && r.events.some((e) => e.type === 'chat.updated')).toBe(true);
   });
+  it('mensagem de texto fica fora do desfazer: ele vai para a ação anterior', async () => {
+    const { room, G, P, m1, t } = await setup();
+    await room.dispatch(G, { type: 'token.create', mapId: m1, name: 'Goblin', x: 1, y: 1, size: 1, color: '#c9483f', layer: 'tokens', ownerIds: [] });
+    await room.dispatch(P, { type: 'chat.send', text: 'olá' });
+    await room.dispatch(G, { type: 'chat.send', text: '/w Lia segredo' });
+    expect(await room.dispatch(G, { type: 'undo' })).toMatchObject({ ok: true });
+    expect(room.state().tokens).toHaveLength(0);
+    expect(room.state().chat.every((m) => !m.undone)).toBe(true);
+    const sent = await t.db.select().from(actionLog).where(eq(actionLog.type, 'chat.send'));
+    expect(sent).toHaveLength(2);
+    expect(sent.every((row) => row.inverse === null && !row.undone)).toBe(true);
+  });
+  it('só mensagens de texto no log: nada para desfazer', async () => {
+    const { room, G, P } = await setup();
+    await room.dispatch(G, { type: 'undo' }); // tira o map.create
+    const r = await room.dispatch(P, { type: 'chat.send', text: 'olá' });
+    expect(r.ok && r.events.at(-1)).toEqual({ type: 'undo.available', canUndo: false });
+    expect(await room.dispatch(G, { type: 'undo' })).toMatchObject({ code: 'nothing_to_undo' });
+  });
+  it.each(['/gr 1d20', 'ataco [[1d20]]', '/w Lia olha [[1d20]]'])('rolagem continua desfazível: %s', async (text) => {
+    const { room, G } = await setup();
+    await room.dispatch(G, { type: 'chat.send', text });
+    expect(await room.dispatch(G, { type: 'undo' })).toMatchObject({ ok: true });
+    expect(room.state().chat.at(-1)!.undone).toBe(true);
+  });
+  it('desfazer atravessa mais de uma página de mensagens de texto', async () => {
+    const { room, G, P, t, campaignId, m1 } = await setup();
+    await room.dispatch(G, { type: 'token.create', mapId: m1, name: 'Goblin', x: 1, y: 1, size: 1, color: '#c9483f', layer: 'tokens', ownerIds: [] });
+    await t.db.insert(actionLog).values(
+      Array.from({ length: UNDO_PAGE_SIZE * 2 + 1 }, () => ({ campaignId, actorId: P.userId, via: 'web', type: 'chat.send', payload: {}, inverse: null })),
+    );
+    expect(await room.dispatch(G, { type: 'undo' })).toMatchObject({ ok: true });
+    expect(room.state().tokens).toHaveLength(0);
+  });
   it('envio emite chat.added e a mensagem sobrevive a recarregar a sala', async () => {
     const { room, P, t, campaignId } = await setup();
     const r = await room.dispatch(P, { type: 'chat.send', text: 'olá' });
@@ -193,7 +227,7 @@ describe('chat', () => {
     await t.db.insert(campaignMembers).values({ campaignId, userId: other!.id, role: 'player' });
     const fresh = await CampaignRoom.load(t.db, campaignId, t.deps.rng);
     await fresh.dispatch(G, { type: 'token.create', mapId: m1, name: 'Goblin', x: 1, y: 1, size: 1, color: '#c9483f', layer: 'tokens', ownerIds: [] });
-    await fresh.dispatch(P, { type: 'chat.send', text: '/w Davi psiu' });
+    await fresh.dispatch(P, { type: 'chat.send', text: '/w Davi psiu [[1d20]]' });
     const whisper = fresh.state().chat.at(-1)!;
     expect(whisper.recipients).toEqual([P.userId, other!.id]);
     expect(fresh.canUndo()).toBe(true);
