@@ -42,3 +42,8 @@ Thumbs.db
 .Python
 pip-log.txt
 pip-delete-this-directory.txt
+
+.omc/
+
+node_modules/
+data/
