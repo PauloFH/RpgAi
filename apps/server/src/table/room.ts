@@ -214,6 +214,7 @@ export class CampaignRoom {
     const inverse = await this.db.transaction(async (tx) => {
       const row = (await findUndoable(tx, this.campaignId, [member.userId])).get(member.userId);
       if (!row) return null;
+      if (!row.inverse) throw new Error(`action_log ${row.id} has no inverse`);
       const inverse = row.inverse as InverseOp;
       await persistChange(tx, this.campaignId, inverse);
       await tx
@@ -283,8 +284,9 @@ async function recipientsOf(db: Db, rows: LogRow[]): Promise<Map<string, string[
 /**
  * For each of `gmIds` that has one, the latest action not yet undone that this GM may
  * undo: any action with an inverse (a text message without rolls has none), except a
- * chat.send whose message they cannot see (e.g. a whisper between other members). Reads the log from the newest, a page at a time, and stops
- * when every GM has an answer: usually the first page, however long the log is.
+ * chat.send whose message they cannot see (e.g. a whisper between other members). Reads
+ * the log from the newest, a page at a time, and stops when every GM has an answer:
+ * usually the first page, however long the log is.
  */
 async function findUndoable(db: Db, campaignId: string, gmIds: string[]): Promise<Map<string, LogRow>> {
   const found = new Map<string, LogRow>();

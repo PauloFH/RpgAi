@@ -6,7 +6,10 @@ import { CampaignRoom, UNDO_PAGE_SIZE } from '../src/table/room';
 import { setup } from './room-setup';
 
 describe('leitura do log para desfazer', () => {
-  /** `count` whispers between two players, written directly: much faster than dispatching them. */
+  /**
+   * `count` whispers between two players, written directly: much faster than dispatching them.
+   * They stand for whispers with a roll: a plain-text one would have no inverse in the log.
+   */
   async function hiddenWhispers(t: Awaited<ReturnType<typeof setup>>['t'], campaignId: string, from: string, to: string, count: number) {
     for (let i = 0; i < count; i++) {
       const id = randomUUID();
@@ -192,6 +195,13 @@ describe('chat', () => {
     expect(sent).toHaveLength(2);
     expect(sent.every((row) => row.inverse === null && !row.undone)).toBe(true);
   });
+  it('desfazer passa pelo texto e marca a rolagem anterior', async () => {
+    const { room, G, P } = await setup();
+    await room.dispatch(P, { type: 'chat.send', text: '/r 1d20' });
+    await room.dispatch(P, { type: 'chat.send', text: 'olá' });
+    expect(await room.dispatch(G, { type: 'undo' })).toMatchObject({ ok: true });
+    expect(room.state().chat.map((m) => m.undone)).toEqual([true, false]);
+  });
   it('só mensagens de texto no log: nada para desfazer', async () => {
     const { room, G, P } = await setup();
     await room.dispatch(G, { type: 'undo' }); // tira o map.create
@@ -205,7 +215,7 @@ describe('chat', () => {
     expect(await room.dispatch(G, { type: 'undo' })).toMatchObject({ ok: true });
     expect(room.state().chat.at(-1)!.undone).toBe(true);
   });
-  it('desfazer atravessa mais de uma página de mensagens de texto', async () => {
+  it('muitas mensagens de texto não escondem a ação anterior', async () => {
     const { room, G, P, t, campaignId, m1 } = await setup();
     await room.dispatch(G, { type: 'token.create', mapId: m1, name: 'Goblin', x: 1, y: 1, size: 1, color: '#c9483f', layer: 'tokens', ownerIds: [] });
     await t.db.insert(actionLog).values(

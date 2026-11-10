@@ -38,6 +38,12 @@ describe('volta do login pelo Discord', () => {
     expect(screen.queryByText(/inventado/)).toBeNull();
   });
 
+  it.each(['__proto__', 'constructor', 'toString'])('código %s não derruba a página', async (code) => {
+    renderAt(`/?login_error=${code}`);
+    await screen.findByText(errorText('inventado'));
+    expect(screen.getByText(t.home.loginDiscord)).toBeTruthy();
+  });
+
   it('sem login_error não há aviso', async () => {
     renderAt('/');
     await screen.findByText(t.home.loginDiscord);

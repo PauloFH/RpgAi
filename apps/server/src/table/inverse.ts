@@ -24,7 +24,8 @@ export type InverseOp =
 /**
  * One primitive change to the table. Every action resolves to exactly one Change,
  * and undo applies the stored InverseOp as a Change, so both go through the same
- * persist/apply code. `member.delete` and `chat.add` only exist forward (their inverses are member.restore and chat.markUndone).
+ * persist/apply code. `member.delete` and `chat.add` only exist forward: their inverses are
+ * member.restore and, when the message has rolls, chat.markUndone (plain text has none).
  */
 export type Change = InverseOp | { op: 'member.delete'; userId: string } | { op: 'chat.add'; message: ChatMessage };
 
